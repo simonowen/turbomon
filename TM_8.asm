@@ -14,7 +14,7 @@
 ;
 ; Code in high memory
                ORG  section_b+mode3_length
-               PUT  section_d
+               DUMP section_d
 
     t_n_d_addr:DW   0
 
@@ -33,7 +33,7 @@
                ADD  HL,DE
                LD   (t_n_d_addr),HL
                CALL clear_inp_line
-               LD   HL,#0320
+               LD   HL,&0320
                LD   (cursor_xpos),HL
                LD   A,255
                LD   (txt_protect),A
@@ -169,10 +169,10 @@ txt_switch_dis:LD   IX,dis_back
                RET
 ;
  scroll_d_poss:LD   A,(cursor_ypos)
-               CP   #15
+               CP   &15
                RET  NZ
                CALL tline
-               LD   A,#14
+               LD   A,&14
                LD   (cursor_ypos),A
                RET
 ;
@@ -226,15 +226,15 @@ get_cursor_add:LD   A,(cursor_xpos)
 ;
   cursor_right:LD   A,(cursor_xpos)
                ADD  A,4
-               CP   #A0
+               CP   &A0
                LD   (cursor_xpos),A
                RET  NZ
-               LD   A,#20
+               LD   A,&20
                LD   (cursor_xpos),A
    cursor_down:LD   A,(cursor_ypos)
                INC  A
                LD   (cursor_ypos),A
-               CP   #18
+               CP   &18
                RET  NZ
                XOR  A
                LD   (cursor_ypos),A
@@ -242,10 +242,10 @@ get_cursor_add:LD   A,(cursor_xpos)
 ;
    cursor_left:LD   A,(cursor_xpos)
                SUB  4
-               CP   #1C
+               CP   &1C
                LD   (cursor_xpos),A
                RET  NZ
-               LD   A,#9C
+               LD   A,&9C
                LD   (cursor_xpos),A
      cursor_up:LD   A,(cursor_ypos)
                SUB  1
@@ -256,7 +256,7 @@ get_cursor_add:LD   A,(cursor_xpos)
                RET
 ;
       txt_page:CALL clear_txt_buf
-               LD   HL,#0200
+               LD   HL,&0200
                LD   (xpos),HL
                LD   B,20
          tpglp:PUSH BC
@@ -281,14 +281,14 @@ get_cursor_add:LD   A,(cursor_xpos)
                RET
 ;
          tline:CALL scroll_down
-               LD   HL,#1500
+               LD   HL,&1500
                LD   (xpos),HL
                CALL clear_txt_buf
                LD   B,1
                JR   tpglp
 ;
         tuline:CALL scroll_up
-               LD   HL,#0200
+               LD   HL,&0200
                LD   (xpos),HL
                CALL clear_txt_buf
                LD   B,1
@@ -347,7 +347,7 @@ get_cursor_add:LD   A,(cursor_xpos)
                EX   AF,AF'
                CALL print_buf_item
                IN   A,(lmpr)
-               AND  #FF-rom1_bitval
+               AND  &FF-rom1_bitval
                OUT  (lmpr),A
                RET
 ;
@@ -391,7 +391,7 @@ get_cursor_add:LD   A,(cursor_xpos)
                ADD  HL,DE
                LD   (t_n_d_addr),HL
                CALL clear_inp_line
-               LD   HL,#031C
+               LD   HL,&031C
                LD   (cursor_xpos),HL
       num_back:CALL num_page
                CALL print_cursor
@@ -453,7 +453,7 @@ no_num_refresh:LD   A,(IY+key)
                POP  HL
                LD   (cursor_xpos),HL
                RET
-       ch_back:LD   DE,#1700
+       ch_back:LD   DE,&1700
                LD   (xpos),DE
                POP  DE
                PUSH HL
@@ -544,10 +544,10 @@ num_switch_dis:LD   IX,dis_back
                RET
 ;
  n_scrl_d_poss:LD   A,(cursor_ypos)
-               CP   #15
+               CP   &15
                RET  NZ
                CALL nline
-               LD   A,#14
+               LD   A,&14
                LD   (cursor_ypos),A
                RET
 ;
@@ -625,7 +625,7 @@ n_cursor_right:LD   A,(cursor_xpos)
                RET
 ;
       num_page:CALL clear_txt_buf
-               LD   HL,#0200
+               LD   HL,&0200
                LD   (xpos),HL
                LD   B,20
          npglp:PUSH BC
@@ -668,14 +668,14 @@ n_cursor_right:LD   A,(cursor_xpos)
                RET
 ;
          nline:CALL scroll_down
-               LD   HL,#1500
+               LD   HL,&1500
                LD   (xpos),HL
                CALL clear_txt_buf
                LD   B,1
                JR   npglp
 ;
         nuline:CALL scroll_up
-               LD   HL,#0200
+               LD   HL,&0200
                LD   (xpos),HL
                CALL clear_txt_buf
                LD   B,1
@@ -748,7 +748,7 @@ n_cursor_right:LD   A,(cursor_xpos)
                EXX
                LD   L,A
                LD   H,A
-  compile_page:LD   BC,#2F00
+  compile_page:LD   BC,&2F00
   compile_line:CP   (HL)
                JR   Z,nil_byte
                INC  C
@@ -815,7 +815,7 @@ n_cursor_right:LD   A,(cursor_xpos)
                LD   DE,buffer
                LD   BC,187
                CALL get_bytes_safe
-               LD   BC,#BB00
+               LD   BC,&BB00
                XOR  A
                LD   HL,buffer
    compile_64l:CP   (HL)
@@ -839,7 +839,7 @@ n_cursor_right:LD   A,(cursor_xpos)
                LD   DE,buffer
                LD   BC,86
                CALL get_bytes_safe
-               LD   BC,#5600
+               LD   BC,&5600
                XOR  A
                LD   HL,buffer
     correct_64:CP   (HL)
@@ -1072,9 +1072,9 @@ show_compiling:CALL clear_inp_line
 
                DS   20
    graph_stack:DW   0
-scale_pattern1:DW   #AAAA,#AAAA,#ABAA,#BBBB,#BBBB,#00BB
-scale_pattern2:DW   #AAAA,#BBAB,#BABB,#AAAA,#BBBB,#00BB
-scale_pattern3:DW   #AEAA,#AAEE,#BABB,#EEAA,#ABEA,#00BB
+scale_pattern1:DW   &AAAA,&AAAA,&ABAA,&BBBB,&BBBB,&00BB
+scale_pattern2:DW   &AAAA,&BBAB,&BABB,&AAAA,&BBBB,&00BB
+scale_pattern3:DW   &AEAA,&AAEE,&BABB,&EEAA,&ABEA,&00BB
      graph_buf:DS   graph_width
 ;
 ; Print extra system state information
@@ -1137,7 +1137,7 @@ scale_pattern3:DW   #AEAA,#AAEE,#BABB,#EEAA,#ABEA,#00BB
                DB   " "+128
 ;
  refresh_state:CALL clear_txt_buf
-               LD   HL,#0A00
+               LD   HL,&0A00
                LD   (xpos),HL
                LD   A,(IY+int_delay)
                CP   255
@@ -1155,7 +1155,7 @@ scale_pattern3:DW   #AEAA,#AAEE,#BABB,#EEAA,#ABEA,#00BB
                CALL print_txt_buf
 ;
                CALL clear_txt_buf
-               LD   HL,#0B00
+               LD   HL,&0B00
                LD   (xpos),HL
                LD   A,(IY+line_ints)
                AND  A
@@ -1167,18 +1167,18 @@ scale_pattern3:DW   #AEAA,#AAEE,#BABB,#EEAA,#ABEA,#00BB
  got_l_int_msg:CALL print_buf_msg
                CALL print_txt_buf
 ;
-   done__ints2:LD   DE,#0628
+   done__ints2:LD   DE,&0628
                LD   HL,mon_palette
                CALL print_8_pots
-               LD   DE,#0728
+               LD   DE,&0728
                LD   HL,mon_palette+8
                CALL print_8_pots
 ;
                LD   A,line_int
-               LD   DE,#0D54
+               LD   DE,&0D54
                CALL print_byte_at
                LD   A,(IY+port_line_int)
-               LD   DE,#0D94
+               LD   DE,&0D94
                CALL print_byte_at
                LD   A,"."
                RST  8
@@ -1206,7 +1206,7 @@ scale_pattern3:DW   #AEAA,#AAEE,#BABB,#EEAA,#ABEA,#00BB
                DB   " "+128
                LD   HL,(cond_printer+1)
                CALL call_ind_hl
-               LD   HL,#1500
+               LD   HL,&1500
                LD   (xpos),HL
                CALL print_txt_buf
 ;
@@ -1458,7 +1458,7 @@ copy_from_addr:LD   HL,0
                RET  Z
                LD   IX,search_buffer
                CALL clear_inp_line
-               LD   HL,#0400
+               LD   HL,&0400
                LD   (xpos),HL
                IN   A,(lmpr)
                LD   (monitor_lmpr),A
@@ -1505,7 +1505,7 @@ search_page_lp:LD   A,(srch_page_init+1)
                OUT  (lmpr),A
   search_stack:LD   SP,0
                EI
-   search_done:LD   DE,#1700
+   search_done:LD   DE,&1700
                LD   HL,search_end_msg
                CALL print_msg_at
                CALL let_go
@@ -1571,7 +1571,7 @@ search_page_lp:LD   A,(srch_page_init+1)
                LD   (search_stack+1),SP
                LD   IX,search_buffer
                CALL clear_inp_line
-               LD   HL,#0400
+               LD   HL,&0400
                LD   (xpos),HL
                IN   A,(lmpr)
                LD   (monitor_lmpr),A
@@ -1795,10 +1795,10 @@ inp_search_skp:DEC  B
    print_comma:LD   A,(IX-2)
                CP   128
                RET  Z
-               LD   A,","
+               LD   A,&2C
                JP   pr_chr
 ;
-               DW   #8080
+               DW   &8080
  search_buffer:DS   22
 
 

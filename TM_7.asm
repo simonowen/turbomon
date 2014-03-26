@@ -271,7 +271,7 @@ call_flag_done:JR   NZ,call_flag_set
 ; POP HL is checked for trailing POP DE and then POP BC
 ;
       i_pop_hl:LD   A,(instr+1)
-               CP   #D1
+               CP   &D1
                JR   Z,pop_hl_de
    norm_pop_hl:LD   DE,reg_l
          pop_i:LD   HL,(reg_spl)
@@ -291,7 +291,7 @@ call_flag_done:JR   NZ,call_flag_set
                LD   C,L
                LD   B,H
                LD   A,(instr+2)
-               CP   #C1
+               CP   &C1
                JR   Z,pop_hl_de_bc
                LD   DE,4
                ADD  HL,DE
@@ -329,7 +329,7 @@ call_flag_done:JR   NZ,call_flag_set
                LD   BC,2
                RST  16
                LD   A,(instr+1)
-               CP   #D1
+               CP   &D1
                JR   Z,pop_bc_de
    norm_pop_bc:POP  HL
                INC  HL
@@ -346,7 +346,7 @@ call_flag_done:JR   NZ,call_flag_set
                LD   BC,2
                RST  16
                LD   A,(instr+2)
-               CP   #F1
+               CP   &F1
                JR   Z,pop_bc_de_af
                POP  HL
                INC  HL
@@ -396,7 +396,7 @@ call_flag_done:JR   NZ,call_flag_set
 ; PUSH rr  (indexable) HL and DE reapeated up to thrice
 ;
      i_push_hl:LD   A,(instr+1)
-               CP   #E5
+               CP   &E5
                JR   Z,push_hl_hl
 single_push_hl:LD   DE,reg_l
         push_i:LD   HL,(reg_spl)
@@ -416,7 +416,7 @@ single_push_hl:LD   DE,reg_l
                LD   HL,(reg_l)
                LD   (mult_hl_buf+2),HL
                LD   A,(instr+2)
-               CP   #E5
+               CP   &E5
                JR   Z,push_hl_hl_hl
                LD   HL,(reg_spl)
                LD   DE,0-4
@@ -446,7 +446,7 @@ single_push_hl:LD   DE,reg_l
                RET
 
      i_push_bc:LD   A,(instr+1)
-               CP   #D5
+               CP   &D5
                JR   Z,push_bc_de
   norm_push_bc:LD   DE,reg_c
                LD   HL,(reg_spl)
@@ -463,7 +463,7 @@ single_push_hl:LD   DE,reg_l
                JP   Z,norm_push_bc
                LD   HL,(reg_spl)
                LD   A,(instr+2)
-               CP   #E5
+               CP   &E5
                JR   Z,push_bc_de_hl
                LD   DE,0-4
                ADD  HL,DE
@@ -490,7 +490,7 @@ single_push_hl:LD   DE,reg_l
                RET
 
      i_push_de:LD   A,(instr+1)
-               CP   #D5
+               CP   &D5
                JR   Z,push_de_de
 single_push_de:LD   DE,reg_e
                LD   HL,(reg_spl)
@@ -512,7 +512,7 @@ single_push_de:LD   DE,reg_e
                LD   (work_space+2),HL
                LD   DE,work_space
                LD   A,(instr+2)
-               CP   #D5
+               CP   &D5
                JR   Z,push_de_de_de
                LD   HL,(reg_spl)
                LD   BC,0-4
@@ -548,7 +548,7 @@ single_push_de:LD   DE,reg_e
                LD   C,2
                CALL put_bytes
                LD   A,(instr+1)
-               CP   #D5
+               CP   &D5
                JR   Z,push_af_de
   norm_push_af:POP  HL
                INC  HL
@@ -564,7 +564,7 @@ single_push_de:LD   DE,reg_e
                LD   C,2
                CALL put_bytes
                LD   A,(instr+2)
-               CP   #C5
+               CP   &C5
                JR   Z,push_af_de_bc
                POP  HL
                INC  HL
@@ -1556,14 +1556,14 @@ i_ex_ind_sp_hl:LD   DE,reg_l
                BIT  0,(IY+cpu_flags)
                JR   Z,dec_i
                POP  BC
-               LD   HL,#03DB
+               LD   HL,&03DB
                AND  A
                SBC  HL,BC
 ; Jump if not running the Speccy ROM BEEP routine
                PUSH BC
                JP   NZ,dec_i
                POP  HL
-               LD   HL,#03DF
+               LD   HL,&03DF
                RET
 ;
        i_dec_c:LD   DE,reg_c
@@ -1781,7 +1781,7 @@ i_ex_ind_sp_hl:LD   DE,reg_l
 ; No short-circuit if nor executing properly
                JR   Z,norm_ld_indhln
                POP  DE
-               LD   HL,#11DC
+               LD   HL,&11DC
                SBC  HL,DE
                JR   NZ,norm_indhln_p
                LD   HL,(reg_l)
@@ -1800,7 +1800,7 @@ i_ex_ind_sp_hl:LD   DE,reg_l
                PUSH AF
                POP  HL
                LD   (reg_flags),HL
-               LD   HL,#11E0
+               LD   HL,&11E0
                RET
 ;
  norm_indhln_p:PUSH DE
@@ -2024,7 +2024,7 @@ i_ld_ind_nn_hl:LD   DE,reg_l
 ; No short-circuit if not executing properly
                JR   Z,norm_dec_indhl
                POP  DE
-               LD   HL,#11E9
+               LD   HL,&11E9
                AND  A
                SBC  HL,DE
 ; Jump if not a JR Z,+3
@@ -2048,7 +2048,7 @@ i_ld_ind_nn_hl:LD   DE,reg_l
                PUSH AF
                POP  HL
                LD   (reg_flags),HL
-               LD   HL,#11E7
+               LD   HL,&11E7
                RET
 ;
 norm_decindhlp:PUSH DE
@@ -2303,7 +2303,7 @@ i_ld_ind_nn_bc:POP  HL
                LD   BC,2
                RST  16
                LD   HL,reg_c
-    ld_bc_addr:LD   DE,#FFFF
+    ld_bc_addr:LD   DE,&FFFF
                LD   BC,2
                CALL put_bytes
                POP  HL
@@ -2317,7 +2317,7 @@ i_ld_bc_ind_nn:POP  HL
                LD   DE,ld_addr_bc+1
                LD   BC,2
                RST  16
-    ld_addr_bc:LD   HL,#FFFF
+    ld_addr_bc:LD   HL,&FFFF
                LD   DE,reg_c
                LD   BC,2
                RST  16
@@ -2333,7 +2333,7 @@ i_ld_ind_nn_de:POP  HL
                LD   BC,2
                RST  16
                LD   HL,reg_e
-    ld_de_addr:LD   DE,#FFFF
+    ld_de_addr:LD   DE,&FFFF
                LD   BC,2
                CALL put_bytes
                POP  HL
@@ -2347,7 +2347,7 @@ i_ld_de_ind_nn:POP  HL
                LD   DE,ld_addr_de+1
                LD   BC,2
                RST  16
-    ld_addr_de:LD   HL,#FFFF
+    ld_addr_de:LD   HL,&FFFF
                LD   DE,reg_e
                LD   BC,2
                RST  16
@@ -2363,7 +2363,7 @@ i_ld_de_ind_nn:POP  HL
                LD   DE,ld_addr_hl+1
                LD   BC,2
                RST  16
-    ld_addr_hl:LD   HL,#FFFF
+    ld_addr_hl:LD   HL,&FFFF
                LD   DE,reg_l
                LD   BC,2
                RST  16
@@ -2379,7 +2379,7 @@ i_ld_de_ind_nn:POP  HL
                LD   BC,2
                RST  16
                LD   HL,reg_l
-    ld_hl_addr:LD   DE,#FFFF
+    ld_hl_addr:LD   DE,&FFFF
                LD   BC,2
                CALL put_bytes
                POP  HL
@@ -2395,7 +2395,7 @@ i_ld_ind_nn_sp:POP  HL
                LD   BC,2
                RST  16
                LD   HL,reg_spl
-    ld_sp_addr:LD   DE,#FFFF
+    ld_sp_addr:LD   DE,&FFFF
                LD   BC,2
                CALL put_bytes
                POP  HL
@@ -2409,7 +2409,7 @@ i_ld_sp_ind_nn:POP  HL
                LD   DE,ld_addr_sp+1
                LD   BC,2
                RST  16
-    ld_addr_sp:LD   HL,#FFFF
+    ld_addr_sp:LD   HL,&FFFF
                LD   DE,reg_spl
                LD   BC,2
                RST  16
@@ -2421,7 +2421,7 @@ i_ld_sp_ind_nn:POP  HL
 ; LDI - Checks for up to 3 trailing LDIs for speed-up
 ;
          i_ldi:LD   A,(instr+2)
-               CP   #ED
+               CP   &ED
                JP   NZ,single_ldi
                BIT  0,(IY+cpu_flags)
 ; Only single LDI allowed when not executing properly
@@ -2443,13 +2443,13 @@ i_ld_sp_ind_nn:POP  HL
                RST  16
                POP  BC
                LD   A,(ldi_buffer)
-               CP   #A0
+               CP   &A0
                LD   A,1
                JR   NZ,got_ldi_times
                INC  BC
                INC  BC
                ADD  A,1
-               LD   DE,#A0ED
+               LD   DE,&A0ED
                LD   HL,(ldi_buffer+1)
                SBC  HL,DE
                JR   NZ,got_ldi_times
@@ -2903,9 +2903,9 @@ i_ld_sp_ind_nn:POP  HL
 ;
 ; INI and IND
 ;
-         i_ind:LD   A,#AA
+         i_ind:LD   A,&AA
                JP   inx
-         i_ini:LD   A,#A2
+         i_ini:LD   A,&A2
            inx:LD   (inx_code+1),A
                LD   HL,(reg_flags)
                PUSH HL

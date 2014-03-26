@@ -999,74 +999,74 @@ show_reg_names:DI
 ; and indirect pointer values)
 ;
  show_reg_vals:LD   HL,(reg_c)
-               LD   DE,#02C0
+               LD   DE,&02C0
                CALL print_word_at
                LD   HL,(reg_e)
-               LD   DE,#03C0
+               LD   DE,&03C0
                CALL print_word_at
                LD   HL,(reg_l)
-               LD   DE,#04C0
+               LD   DE,&04C0
                CALL print_word_at
                LD   HL,(reg_alt_c)
-               LD   DE,#02EC
+               LD   DE,&02EC
                CALL print_word_at
                LD   HL,(reg_alt_e)
-               LD   DE,#03EC
+               LD   DE,&03EC
                CALL print_word_at
                LD   HL,(reg_alt_l)
-               LD   DE,#04EC
+               LD   DE,&04EC
                CALL print_word_at
                LD   HL,(reg_ixl)
-               LD   DE,#0CC0
+               LD   DE,&0CC0
                CALL print_word_at
                LD   HL,(reg_iyl)
-               LD   DE,#0CEC
+               LD   DE,&0CEC
                CALL print_word_at
                LD   HL,(reg_pcl)
-               LD   DE,#0DC0
+               LD   DE,&0DC0
                CALL print_word_at
                LD   HL,(reg_spl)
-               LD   DE,#0DEC
+               LD   DE,&0DEC
                CALL print_word_at
                LD   HL,(reg_flags)
-               LD   DE,#09C0
+               LD   DE,&09C0
                CALL print_word_at
                LD   HL,(reg_alt_flags)
-               LD   DE,#0AC0
+               LD   DE,&0AC0
                CALL print_word_at
                LD   A,(reg_a)
-               LD   DE,#10BC
+               LD   DE,&10BC
                CALL print_byte_at
                LD   A,(reg_b)
-               LD   DE,#11BC
+               LD   DE,&11BC
                CALL print_byte_at
                LD   A,(reg_c)
-               LD   DE,#11D8
+               LD   DE,&11D8
                CALL print_byte_at
                LD   A,(reg_d)
-               LD   DE,#12BC
+               LD   DE,&12BC
                CALL print_byte_at
                LD   A,(reg_e)
-               LD   DE,#12D8
+               LD   DE,&12D8
                CALL print_byte_at
                LD   A,(reg_h)
-               LD   DE,#13BC
+               LD   DE,&13BC
                CALL print_byte_at
                LD   A,(reg_l)
-               LD   DE,#13D8
+               LD   DE,&13D8
                CALL print_byte_at
                LD   A,(reg_int_vector)
-               LD   DE,#15BC
+               LD   DE,&15BC
                CALL print_byte_at
                LD   A,(reg_refresh)
-               LD   DE,#15D8
+               LD   DE,&15D8
                CALL print_byte_at
-               LD   HL,#16C4
+               LD   HL,&16C4
                LD   (xpos),HL
                LD   A,(reg_int_mode)
                ADD  A,48
                RST  8
-               LD   HL,#16D0
+               LD   HL,&16D0
                LD   (xpos),HL
                LD   A,(reg_iff1)
                RRCA
@@ -1101,27 +1101,27 @@ show_reg_names:DI
                LD   HL,(work_space)
                LD   (top_of_stack),HL
                POP  HL
-               LD   DE,#0FEC
+               LD   DE,&0FEC
                LD   BC,print_word
                LD   A,8
                CALL print_list
                LD   HL,(reg_c)
-               LD   DE,#07B6
+               LD   DE,&07B6
                CALL print_indirect
                LD   HL,(reg_e)
-               LD   DE,#07C8
+               LD   DE,&07C8
                CALL print_indirect
                LD   HL,(reg_l)
-               LD   DE,#07DA
+               LD   DE,&07DA
                CALL print_indirect
                LD   HL,(reg_alt_l)
-               LD   DE,#07F0
+               LD   DE,&07F0
                CALL print_indirect
                LD   A,(reg_flags)
-               LD   DE,#09E0
+               LD   DE,&09E0
                CALL print_flags
                LD   A,(reg_alt_flags)
-               LD   DE,#0AE0
+               LD   DE,&0AE0
                JP   print_flags
 ;
    print_flags:LD   B,A
@@ -1295,11 +1295,11 @@ print_hex_byte:CALL dohex
                LD   HL,section_b+3072
                LD   DE,section_b+2048
                LD   A,152
-  scr_down_lp1:LD   BC,#04FF
-  scr_down_lp2:DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED
+  scr_down_lp1:LD   BC,&04FF
+  scr_down_lp2:DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED
                DJNZ scr_down_lp2
                LD   BC,128-88
                ADD  HL,BC
@@ -1314,11 +1314,11 @@ print_hex_byte:CALL dohex
                LD   HL,section_b+mode4_length-3200
                LD   DE,section_b+mode4_length-2176
                LD   A,152
-    scr_up_lp1:LD   BC,#04FF
-    scr_up_lp2:DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED,#A0ED,#A0ED
-               DW   #A0ED,#A0ED,#A0ED,#A0ED
+    scr_up_lp1:LD   BC,&04FF
+    scr_up_lp2:DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED,&A0ED,&A0ED
+               DW   &A0ED,&A0ED,&A0ED,&A0ED
                DJNZ scr_up_lp2
                LD   BC,0-128-88
                ADD  HL,BC

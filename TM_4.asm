@@ -330,9 +330,9 @@
                ADD  A,49
                LD   (top_txt+53),A
                BIT  0,(IY+misc_flags)
-               LD   HL,#4646
+               LD   HL,&4646
                JR   Z,caps_off
-               LD   HL,#204E
+               LD   HL,&204E
       caps_off:LD   (top_txt+62),HL
                BIT  5,(IY+port_lmpr)
                LD   HL,rom0_mess
@@ -393,7 +393,7 @@
 ; Clear the input line
 ;
 clear_inp_line:LD   B,64
-               LD   HL,#1700
+               LD   HL,&1700
                LD   (xpos),HL
      cl_inp_lp:LD   A,32
                RST  8
@@ -762,7 +762,7 @@ cond_init_rout:CALL dummy_ret
                CALL stop_executing
                JP   highlight_pc
 ;
-   call_ind_ix:DB   #DD
+   call_ind_ix:DB   &DD
    call_ind_hl:JP   (HL)
      dummy_ret:RET
 ;
@@ -1175,7 +1175,7 @@ output_printer:CALL print_buf_pop
     dis_coords:DW   0
        dis_top:DW   0
 ;
- print_buf_bot:LD   DE,#1700
+ print_buf_bot:LD   DE,&1700
   print_buf_at:LD   (xpos),DE
  print_txt_buf:LD   B,45
                LD   DE,txt_buffer
@@ -1372,7 +1372,7 @@ output_printer:CALL print_buf_pop
   edit_reg_msg:DM   "Input new value for "
   edit_reg_lts:DB   " "," "
 ;
-       edit_pc:LD   HL,#C350
+       edit_pc:LD   HL,&C350
                LD   DE,reg_pcl
                PUSH DE
                LD   (edit_reg_lts),HL
@@ -1383,15 +1383,15 @@ output_printer:CALL print_buf_pop
                SET  2,(IY+refresh_flags)
                JR   edit_double_in
 ;
-       edit_sp:LD   HL,#D053
+       edit_sp:LD   HL,&D053
                LD   DE,reg_spl
                JR   get_double_reg
 ;
-       edit_ix:LD   HL,#D849
+       edit_ix:LD   HL,&D849
                LD   DE,reg_ixl
                JR   get_double_reg
 ;
-       edit_iy:LD   HL,#D949
+       edit_iy:LD   HL,&D949
                LD   DE,reg_iyl
                JR   get_double_reg
 ;
@@ -1824,7 +1824,7 @@ saved_dis_addr:DW   0
                CALL disassemble
                LD   (dis_table+dis_buf_size-2),HL
                CALL disassemble
-               LD   DE,#1500
+               LD   DE,&1500
                JP   print_buf_at
 ;
         dis_up:LD   HL,dis_table+dis_buf_size-3
@@ -1836,7 +1836,7 @@ saved_dis_addr:DW   0
                LD   (dis_table),HL
                CALL disassemble
                CALL scroll_up
-               LD   DE,#0200
+               LD   DE,&0200
                JP   print_buf_at
 ;
 dis_switch_num:LD   IX,num_x_default

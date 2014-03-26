@@ -12,7 +12,7 @@
       cb_div_2:EQU  index_div_2+1
 ;
                ORG  decode_tables
-               PUT  put_base+decode_tables
+               DUMP put_base+decode_tables
 ;
   normal_table:DW   len_1
 ;                   NOP
@@ -875,7 +875,7 @@
 ;                              Format: DDCBddop
    ddcb_prefix:LD   A,(instr+2)
                AND  %11111000
-               OR   #06
+               OR   &06
                LD   (ddcb_code+1),A
                EX   DE,HL
                LD   C,(HL)
@@ -895,7 +895,7 @@
                PUSH HL
                POP  AF
                LD   HL,temp_store
-     ddcb_code:DB   #CB,0
+     ddcb_code:DB   &CB,0
                POP  DE
                PUSH AF
                CALL put_byte
@@ -925,13 +925,13 @@
                RST  16
                LD   A,(instr+1)
                AND  %11111000
-               OR   #06
+               OR   &06
                LD   (cb_ind_hl_code+1),A
                LD   HL,(reg_flags)
                PUSH HL
                POP  AF
                LD   HL,temp_store
-cb_ind_hl_code:DB   #CB,0
+cb_ind_hl_code:DB   &CB,0
                PUSH AF
                LD   DE,(reg_l)
                CALL put_byte
@@ -946,7 +946,7 @@ cb_ind_hl_code:DB   #CB,0
                LD   HL,(reg_flags)
                PUSH HL
                POP  AF
-     cb_a_code:DB   #CB,0
+     cb_a_code:DB   &CB,0
                PUSH AF
                POP  HL
                LD   (reg_flags),HL
@@ -967,12 +967,12 @@ cb_ind_hl_code:DB   #CB,0
                JP   cb_r
           cb_l:LD   HL,reg_l
           cb_r:AND  %11111000
-               OR   #06
+               OR   &06
                LD   (cb_r_code+1),A
                LD   DE,(reg_flags)
                PUSH DE
                POP  AF
-     cb_r_code:DB   #CB,0
+     cb_r_code:DB   &CB,0
                PUSH AF
                POP  HL
                LD   (reg_flags),HL

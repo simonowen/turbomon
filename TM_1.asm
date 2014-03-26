@@ -1,4 +1,3 @@
-               *REPORT OFF
 ;
 ; U S E F U L   S A M   C O N S T A N T S
 ;

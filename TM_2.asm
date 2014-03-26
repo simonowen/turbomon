@@ -13,7 +13,9 @@
 ; Entry point from BASIC.
 ;
                ORG  0
-               PUT  put_base+0
+               DUMP put_base+0
+               autoexec
+
 ; End marker for SC_ASSEMBLER - two RST 56 instructions!
       relocate:DB   255,255
 ;
@@ -206,7 +208,7 @@
   quit_prepare:DI
         h_page:LD   A,0
                OUT  (hmpr),A
-               LD   HL,#FFFF
+               LD   HL,&FFFF
 ; Write the end of text marker for the SC_ASSEMBLER
                LD   (section_c),HL
                XOR  A
@@ -265,7 +267,7 @@
 ;
 ; Variables base (holding default values)
 ;
-     variables:DB   #1F,#C0,31,1,94,0,0,0,0,0,0,0,0,0,0
+     variables:DB   &1F,&C0,31,1,94,0,0,0,0,0,0,0,0,0,0
                DB   0,0,0,0,0
 ; Entry point from BASIC.
 ; Above shared variables displacements from base
@@ -299,12 +301,12 @@
 ; Palette colours
 ;
 ; Default palette reset back to on request
-normal_palette:DB   #00,#10,#20,#30,#40,#50,#60,#78
-               DB   #00,#11,#22,#33,#44,#55,#66,#7F
+normal_palette:DB   &00,&10,&20,&30,&40,&50,&60,&78
+               DB   &00,&11,&22,&33,&44,&55,&66,&7F
 ;
 ; Palette of monitor screen
-   mon_palette:DB   #00,#10,#20,#30,#40,#50,#60,#78
-               DB   #00,#11,#22,#33,#44,#55,#66,#7F
+   mon_palette:DB   &00,&10,&20,&30,&40,&50,&60,&78
+               DB   &00,&11,&22,&33,&44,&55,&66,&7F
 ;
 ; Palette panel screen  (normal and inverse)
    our_palette:DB   0,16,78,127

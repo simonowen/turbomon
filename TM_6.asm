@@ -51,17 +51,17 @@ do_disassemble:LD   (addr),HL
                LD   IX,dis_buffer
                LD   A,(IX+0)
 ;:
-               CP   #ED
+               CP   &ED
                LD   C,1
                LD   HL,ed_string
                JR   Z,got_string_inc
-               CP   #CB
+               CP   &CB
                LD   HL,cb_string
                JR   Z,got_string_inc
-               CP   #DD
+               CP   &DD
                SET  2,C
                JR   Z,index_prefix
-               CP   #FD
+               CP   &FD
                LD   C,0
                LD   HL,normal_string
                JR   NZ,got_string
@@ -83,7 +83,7 @@ do_disassemble:LD   (addr),HL
       self_mod:DB   203,0
                JR   Z,prefix_only
                LD   A,(IX+0)
-               CP   #CB
+               CP   &CB
                LD   HL,normal_string
                JR   NZ,got_string
                LD   HL,cb_string
@@ -139,10 +139,10 @@ got_string_inc:INC  IX
 ;
 ; Set bits indicate which instructions can have an index
 ; prefix - 1 bit per opcode.
-   index_table:DB   #08,#8A,#0A,#8A,#3E,#BE,#3E,#08
-               DB   #08,#8B,#0A,#4A,#3E,#3E,#3E,#08
-               DB   #08,#08,#08,#08,#3E,#3E,#36,#08
-               DB   #00,#83,#00,#00,#3C,#3C,#3C,#00
+   index_table:DB   &08,&8A,&0A,&8A,&3E,&BE,&3E,&08
+               DB   &08,&8B,&0A,&4A,&3E,&3E,&3E,&08
+               DB   &08,&08,&08,&08,&3E,&3E,&36,&08
+               DB   &00,&83,&00,&00,&3C,&3C,&3C,&00
 
      parse_str:LD   A,(HL)
                INC  HL
@@ -295,7 +295,7 @@ got_string_inc:INC  IX
       string_e:DB   179
                DM   "["
                DB   159
-               DM   "[RLC!RRC!RL* !RR* !SLA!SRA!SLL!SRL]
+               DM   "[RLC!RRC!RL* !RR* !SLA!SRA!SLL!SRL]"
                DM   "!BIT!RES!SET]0"
       string_f:DB   159
       string_g:DM   "[NZ!Z!NC!C!PO!PE!P!M]0"
@@ -664,7 +664,7 @@ print_ins_word:LD   L,(IX+1)
                RET
 ;
  clear_txt_buf:LD   HL,txt_buffer
-               LD   BC,#2F20
+               LD   BC,&2F20
   txt_clear_lp:LD   (HL),C
                INC  HL
                DJNZ txt_clear_lp
