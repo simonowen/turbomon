@@ -1,0 +1,78 @@
+S I M U L A T E
+===============
+
+This file conatins the main code which is called when we wish to simulate an instruction. First we
+fetch the instruction from the current PC into the execute buffer (which is used as the store for
+the instruction even if we don't use the execute buffer to run it). We look up the first byte of the
+instruction in the decode table, and jump to the address that we find there. The instruction is then
+executed by the handling code. Before the jump is made, we push the address of the exit routine onto
+the stack so it can simply be RETurned to. The exit routine holds the code which will update the PC
+to the next instruction (unless we are performing a JP,JR,CALL,RST,RET - these instructions junk the
+address by POPing it off the stack).
+
+The below code needs to run as fast as possible since it's run for EVERY instruction.
+
+C O D E:
+========
+
+;
+; SIMULATE - Fetch, decode and jump to execute the instruction at the current Program Counter
+;
+; Entry:    REG_PCL holds the address of the instruction we wish to execute
+; Exit:     REG_PCL holds the address of the next instruction ; registers are changed depending on
+;            which instruction was executed.
+;
+; Timing:   Overhead for fetch and decode. Execution timing depends on the instruction.
+;
+SIMULATE        LD      HL,UPDATE_PC    10  ;  The routine to add instruction length to PC
+                PUSH    HL              11  ;  Push onto stack so it can be RETurned to
+                LD      HL,(REG_PCL)    16  ;  Get the current PC
+                LD      DE,EXECUTE_BUF  10  ;  The bytes are dumped into the execute buffer
+                LD      C,4             7   ;  Length of longest instruction
+                CALL    GET_BYTES       17  ;  Fetch the whole instruction (or more!)
+; now decode
+                LD      A,(EXECUTE_BUF) 13  ;  Fetch the first byte of the instruction
+                LD      L,A             8
+                EX      AF,AF'          4   ;  Save opcode value
+                SLA     L               8   ;  Opcode = opcode * 2
+                LD      A,DECODE_HIGH   7   ;  High byte of the decode table
+                ADC     A,0             7   ;  CY guaranteed to be reset after this
+                LD      H,A             4
+
+                LD      A,(EXECUTE_BUF) 13  ;  Fetch the first byte of the instruction
+                LD      L,A             4
+                LD      H,C             4   ;  C = 0 from GET_BYTES
+                LD      DE,DECODE_TABLE 10  ;  Base address of the decode table
+                ADD     HL,DE           11  ;  Find the address of this opcodes handler
+                
+; now execute
+                LD      E,(HL)          7   ;  Pick up the low byte of the routine address
+                INC     L               4
+                LD      D,(HL)          7   ;  Pick up the high byte of the routine address
+                EX      DE,HL           4
+                JP      (HL)            4   ;  Jump to the handling routine
+;
+; IY_PREFIX - Handle the finding of an IY prefix (10 T-states more than IX prefix)
+;
+IY_PREFIX       LD      HL,REG_IYL      10  ;  Point to the address of the IY contents
+                JP      INDEX_MAIN      10  ;  Jump to complete the rest of the index handling
+;
+; IX_PREFIX - Handle the finding of an IX prefix
+;
+IX_PREFIX       LD      HL,REG_IXL      10  ;  Point to the address of the IX contents
+INDEX_MAIN      LD      IX,PREFIX_TABLE 14  ;  Bit table holding which opcodes are allowed a prefix
+                
+
+PREFIX_TABLE    
+;
+; UPDATE_PC - Add the length of the instruction to the Program Counter
+;
+; Entry:    C=instruction length
+;
+; Timing:   60 T-states
+;
+UPDATE_PC       LD      HL,(REG_PCL)    16  ;  Fetch the old PC
+                LD      B,0             7   ;  Clear the high byte of the length
+                ADD     HL,BC           11  ;  Calculate the new address
+                LD      (REG_PCL),HL    16  ;  Return the new PC to the register store
+                RET                     10  ;  Return from the entire simulator section

@@ -1,0 +1,1086 @@
+E X E C U T E   P H A S E
+=========================
+
+T H E   R E G I S T E R   S T O R E
+-----------------------------------
+
+ The register store is a table of values in the Simulator that represent the current state of the
+ system in executing a program including all registers and Program Counter.
+
+ Since many of the instructions reference the registers as an index number to a list, ie. BC=0,
+ DE=1, HL=2, SP=3  -    the order that the registers are stored should try to take advantage of
+ this. There are some overlaps of the index numbers but if the most common one is used it should
+ cut down the amount of fiddling with the ones that don't fit.
+
+ The following lists are the orders that the registers are used in instructions, taken
+ from the main list in the 'Decode' file:
+
+ [IX and IY can be ignored in the list since they will need a special displacement added
+  as distance from the HL value. We need not worry about them]
+
+  Reg. Group    Order               List
+
+  RegPairs      CBEDLHPS            BC|DE|[HL|IX|IY]|SP
+  SingleReg     BCDEHL(HL)A         B|C|D|E| [H|IXh|IYh] | [L|IXl|IYl] | [(HL)|[([IX|IY]+d)] |A
+  SingleReg     CBEDLHA(HL)         B|C|D|E| [H|IXh|IYh] | [L|IXl|IYl] | [(HL)|[([IX|IY]+d)] |A
+  RegStack      CBEDLHFA            BC|DE|[HL|IX|IY]|AF
+
+ The order of everything except AF, BC, DE, HL and SP doesn't matter too much. This is the order
+ that they will be stored in (low byte first for the pairs):
+
+        BC, DE, HL, AF, SP, IX, IY, AF', BC', DE', HL', PC, IR, Interrupts
+
+C O D E :
+=========
+
+;
+; The register store - where the currect system state is held
+;
+REG_C           DB  0       ; The register pairs are stored low byte first
+REG_B           DB  0
+REG_E           DB  0
+REG_D           DB  0
+REG_L           DB  0
+REG_H           DB  0
+REG_FLAGS       DB  0
+REG_A           DB  0
+REG_SPL         DB  0
+REG_SPH         DB  0
+REG_IXL         DB  0
+REG_IXH         DB  0
+REG_IYL         DB  0
+REG_IYH         DB  0
+REG_ALT_FLAGS   DB  0
+REG_ALT_A       DB  0
+REG_ALT_C       DB  0       ; The register pairs are stored low byte first
+REG_ALT_B       DB  0
+REG_ALT_E       DB  0
+REG_ALT_D       DB  0
+REG_ALT_L       DB  0
+REG_ALT_H       DB  0
+REG_PCL         DB  0
+REG_PCH         DB  0       ; Current program counter
+REG_INT_VECTOR  DB  0       ; Interrupt vector value
+REG_REFRESH     DB  0       ; Refresh register value
+REG_INTERRUPTS  DB  0       ; Bit 2 will hold current interrupt status
+
+E X E C U T E   B U F F E R
+---------------------------
+
+ The execute buffer is a 4 byte space where actual instructions can be placed to be
+ executed. These will have already been filtered for ones which can not be executed
+ directly like CALL (since a direct call of a location that is not paged in cannot be
+ allowed), although instructions which have been changed to remove any direct memory
+ accesses can then be run using this.
+
+ General idea:
+
+    -   Pick up all the normal Z80 registers' contents from the store into actual registers.
+        ie. AF, BC, DE, HL, IX, IY, SP
+    -   Run on to execute the 4 byte buffer
+    -   Save the new contents of the registers back to the register store.
+
+ This method can be used for many instructions but it quite time expensive so it shall be
+ avoided for the instructions that can be coded easily using another method.
+
+
+;
+; Execute buffer code - fetches register values, executes instruction, replaces new values.
+;
+; Timing:   317 to 321 T-states depending on which instruction we're executing.
+;
+I_EXECUTE_BUF   PUSH    IY                  15  ; Save the flags pointer
+                LD      (KEEP_STACK+1),SP   20  ; Save Simulators own SP value
+                DI                          4   ; Critical section start
+                LD      SP,REG_C            10  ; Point to where to fetch registers values from
+                POP     BC                  10
+                POP     DE                  10
+                POP     HL                  10
+                POP     AF                  10
+                POP     AF                  10
+                POP     IX                  14
+                POP     IY                  14
+                LD      SP,(REG_SPL)        20  ; Fetch the SP value
+EXECUTE_BUF     DB      0,0,0,0             (Min 16, Max about 20)  ; Execute the instruction
+                LD      (REG_SPL),SP        20  ; Store the new SP value
+                LD      SP,REG_ALT_FLAGS+1  10  ; Point to where to put new register values down
+                PUSH    IY                  15
+                PUSH    IX                  15
+                PUSH    AF                  11
+                DEC     SP                  6   ; Skip SPh
+                DEC     SP                  6   ; Skip SPl
+                PUSH    HL                  11
+                PUSH    DE                  11
+                PUSH    BC                  11
+KEEP_STACK      LD      SP,0                10  ; Restore our SP
+                POP     IY                  14
+                EI                          4   ; Critical section end
+                RET                         10
+
+
+E X T R A   R O U T I N E S
+---------------------------
+
+These routines are used shared by the main block of instruction functions:
+
+;
+; FLAG_TEST - checks the flag specified by the opcode in A
+;
+; Entry:    A holds the byte (usually the opcode) containing which flag to test
+; Exit:     Zero flag set if test was passed
+;
+; Timings (T-states):   104 (NZ/Z) ; 122 (NC/C) ; 140 (PO/PE) ; 135 (P/M)
+;
+
+FLAG_TEST       LD      B,A                 4       ; Save the opcode in B
+                LD      C,2                 7
+                RRA                         4
+                RRA                         4
+                RRA                         4
+                AND     %00000111           7
+                LD      E,%01000000         7
+                SUB     C                   4
+                JR      C,GOT_FLAG_MASK     12/7 ;  Jump if flag was NZ/Z
+                LD      E,%00000001         7
+                SUB     C                   4
+                JR      C,GOT_FLAG_MASK     12/7 ;  Jump if flag was NC/C
+                LD      E,%00000100         7
+                SUB     C                   4
+                JR      C,GOT_FLAG_MASK     12/7 ;  Jump if flag was PO/PE
+                LD      E,%10000000         7   ;  Here if flag was P/M
+GOT_FLAG_MASK   RRA                         4   ;  Push flag bit into carry
+                SBC     A,A                 4   ;  A=0 if flag=0 or A=255 if flag =1
+                AND     E                   4   ;  Leave flag bit in the poisition we want
+                LD      D,A                 4
+                LD      A,(REG_FLAGS)       13  ;  Fetch the current flags
+                AND     E                   4   ;  Mask of the bit we're interested in
+                XOR     D                   4   ;  Compare the flag bit with the flags entry
+                LD      A,B                 4   ;  Put the opcode back into A
+                RET                         10  ;  Return with Z set if they match
+;
+; GET_HL_IX_IY  - Return the address of HL|IX|IY depending on prefix (or lack of)
+; HL_IX_IY_PAIR - same as above but fetches byte from first position in instruction
+;
+; Entry:    C = original instruction length
+; Exit:     HL points to HL|IX|IY register contents
+;           C = length of instruction (1 is added if using an index prefix)
+;           Z flag set if was using index prefix
+;
+; Timings (T-states):   35 (IX prefix) ; 62 (IY prefix) ; 82 (no prefix - just using HL)
+;
+HL_IX_IY_PAIR   LD      A,(EXECUTE_BUF)     13  ;  Fetch first byte of instruction
+
+GET_HL_IX_IY    INC     C                   4   ;  Prefixed instructions are 1 longer
+                LD      HL,REG_IXL          10  ;  Pointer to IX register contents
+                CP      #DD                 7   ;  Check for IX prefix
+                RET     Z                   10  ;  Return if it was an IX prefix
+                LD      HL,REG_IYL          10  ;  Pointer to IY register contents
+                CP      #FD                 7   ;  Check for IY prefix
+                RET     Z                   10  ;  Return if it was an IY prefix
+                LD      HL,REG_L            10  ;  Pointer to HL register contents
+                DEC     C                   4   ;  No prefix, so return to original length
+                RET                         10  ;  Must be HL if not IX or IY
+;
+; GET_SINGLE_ROT - Same as routine below but rotates opcode right by 3 places first
+;
+GET_SINGLE_ROT  RRA                         4
+                RRA                         4
+                RRA                         4
+;
+; GET_SINGLE_REG - Return the address of the single register in the register store
+;                  Register store order: C,B,E,D,[L|IXl|IYl],[H|IXh|IYh],-,A
+;
+; Entry:    A holds the required register number in the right hand three bits
+;           C = original instruction length
+; Exit:     HL points to the location in the register store of that registers contents
+;           C = length of instruction (1 is added if using an index prefix)
+;           Z flag set if instruction refers to index register high/low byte
+;
+; Timing (T-states):
+;
+GET_SINGLE_REG  AND     %00000111           7   ;  strip out the 3 bits we're interested in
+                LD      HL,REG_A            10  ;  Address of A in the register store
+                CP      %00000101           7   ;  Check for (HL) [can't happen so flag NZ]
+                RET     NC                  11/5 ; Return if it was greater ie. was 'A'
+                XOR     1                   7   ;  Swap the order of the register pairs
+                CP      4                   7   ;  Signal NC if using H or L (or IXh or IXl etc)
+                JR      NC,CHECK_H_L        12/7 ; Jump if are
+                LD      E,A                 4
+                LD      D,0                 7
+                LD      HL,REG_C            10  ;  The base address holding C,B,E,D, ...
+                ADD     HL,DE               11  ;  Find the address of the required register
+                RET                         10
+CHECK_H_L       LD      B,A                 4   ;  Store the register number
+                CALL    HL_IX_IY_PAIR       17  ;  Get the location of the relevant pair
+                LD      A,B                 4   ;  Fetch the register number
+                RRA                         8   ;  Carry set it using high byte [Z flag unchanged]
+                RET     NC                  11/5 ; Return if we were using Low
+                INC     HL                  6   ;  Move to point at the High byte
+                RET                         10
+;
+; GET_REG_PAIR - Return the address of the register pair in the register store
+;                Register pair order BC,DE,[HL|IX|IY]|SP
+;
+; Entry:    A holds the opcode byte with the pair in bits 4 and 5
+; Exit:     Z flag set if instruction refers to IX or IY
+;
+GET_REG_PAIR    AND     %00110000           7   ;  Strip out the register pair bits
+                CP      %00100000           7   ;  Check for HL|IX|IY
+                JR      Z,HL_IX_IY_PAIR     12/7 ; Jump if using HL|IX|IY [see GET_HL_IX_IY]
+                LD      HL,REG_C            10  ;  Address of BC in register store
+                CP      %00000001           7   ;  Separate BC from rest
+                RET     C                   11/5 ; Return if it was BC
+                LD      HL,REG_E            10  ;  Address of DE in register store
+                CP      %00010001           7   ;  Separate DE from rest
+                RET     C                   11/5 ; Return if it was DE
+                LD      HL,REG_SPL          10  ;  Address of SP in resister store
+                RET
+
+
+H A N D L I N G   R O U T I N E S
+=================================
+
+ The following routines handle the execution of the sets of instruction. They expect to be
+ entered with A holding the opcode value and exit with C holding the instruction length.
+
+;
+; Temporary stores: the next 2 word buffers are used as stores for values/addresses
+;
+TEMP_STORE1     DEFW    0
+TEMP_STORE2     DEFW    0
+;
+; Instruction covered:  UNDEFINED (PC is unaltered so we hang at undefined instructions)
+;
+; Timing:   17 T-states
+;
+I_UNDEFINED     LD      C,0                 7   ;  PC stays where it is for debugging
+                RET                         10
+;
+; Instruction covered:  NOP (and other instructions that do nothing)
+;
+; Timing:   17 T-states
+;
+I_NOP           LD      C,1                 7   ;  Instruction length
+                RET                         10
+;
+; Instruction covered:  NOP : NOP  (2 byte instructions that have no effect)
+;
+; Timing:   17 T-states
+;
+I_NOP_NOP       LD      C,2                 7   ;  Instruction length
+                RET
+;
+; Instruction covered:  EX  AF,AF'
+;
+; Timing:   89 T-states
+;
+I_EX_AF_AF      LD      HL,(REG_FLAGS)      16  ;  Get AF
+                LD      DE,(REG_ALT_FLAGS)  20  ;  Get AF'
+                LD      (REG_ALT_FLAGS),HL  16  ;  Put AF as AF'
+                LD      (REG_FLAGS),DE      20  ;  Put AF' as AF
+                LD      C,1                 7   ;  Instruction length
+                RET                         10
+;
+; Instruction covered:  EX  DE,HL
+;
+; Timing:   89 T-states
+;
+I_EX_DE_HL      LD      HL,(REG_L)          16  ;  Get HL
+                LD      DE,(REG_E)          20  ;  Get DE'
+                LD      (REG_E),HL          16  ;  Put HL as DE
+                LD      (REG_L),DE          20  ;  Put DE as HL
+                LD      C,1                 7   ;  Instruction length
+                RET                         10
+;
+; Instruction covered:  EXX
+;
+; Timing:   233 T-states
+;
+I_EXX           LD      HL,(REG_C)          16  ;  Get BC
+                LD      DE,(REG_ALT_C)      20  ;  Get BC'
+                LD      (REG_ALT_C),HL      16  ;  Put BC as BC'
+                LD      (REG_C),DE          20  ;  Put BC' as BC
+                LD      HL,(REG_E)          16  ;  Get DE
+                LD      DE,(REG_ALT_E)      20  ;  Get DE'
+                LD      (REG_ALT_E),HL      16  ;  Put DE as DE'
+                LD      (REG_E),DE          20  ;  Put DE' as DE
+                LD      HL,(REG_L)          16  ;  Get HL
+                LD      DE,(REG_ALT_L)      20  ;  Get HL'
+                LD      (REG_ALT_L),HL      16  ;  Put HL as HL'
+                LD      (REG_L),DE          20  ;  Put HL' as HL
+                LD      C,1                 7   ;  Instruction length
+                RET                         10
+;
+; Instructions covered: RLCA|RRCA|RLA|RRA|DAA|CPL|SCF|CCF
+;                 also: ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP | A
+;
+; Timing:   132 T-states
+;
+I_SIMPLE        LD      BC,1                10  ;  B = 0 (no prefix) ; C = 1 (instruction length)
+I_SIMPLE_IN     LD      HL,I_SIMPLE_CODE    10  ;  Pointer to the simple execute 2 byte buffer
+                LD      (HL),B              7   ;  Dump the prefix here or a NOP for no prefix
+                INC     HL                  6   ;  Next location
+                LD      (HL),A              7   ;  Dump the main part of the instruction
+                LD      HL,(REG_FLAGS)      16  ;  Get the flags since the instructions affect them
+                PUSH    HL                  11
+                POP     AF                  10  ;  Transfer them to AF
+I_SIMPLE_CODE   DEFB    0, 0                8   ;  Execute the instruction
+                PUSH    AF                  11
+                POP     HL                  10
+                LD      (REG_FLAGS),HL      16  ;  Put the new flags back to the register store
+                RET                         10
+;
+; Instructions covered: ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP | n
+;
+; Timing:   156 T-states
+;
+I_ARITH_N       LD      B,A                 4   ;  The opcode is treated like a prefix
+                LD      A,(EXECUTE_BUF+1)   13  ;  Fetch the byte following the opcode
+                LD      C,2                 7   ;  Instruction length
+                JP      I_SIMPLE_IN         10  ;  Execute like a simple instruction
+;
+; Instructions covered: ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP | r      [ except A ]
+;
+; Timings (T-states):
+;
+I_ARITH_B       LD      DE,REG_B                10
+                JR      ARITH_R_IN              12
+I_ARITH_E       LD      DE,REG_E                10
+                JR      ARITH_R_IN              12
+I_ARITH_D       LD      DE,REG_D                10
+                JR      ARITH_R_IN              12
+I_ARITH_C       LD      DE,REG_C                10
+ARITH_R_IN      LD      C,1                     7   ;  Instruction length
+ARITH_INDEX_IN  AND     %11111000               7   ;  Mask out the register part of the opcode
+                OR      %00000110               7   ;  Add a (HL) as the register
+                LD      B,#EB                   7   ;  LD B with 'EX  DE,HL'
+                JP      I_SIMPLE_IN             10  ;  Execute like a simple instruction
+I_ARITH_L_I     LD      C,1                     7   ;  Instruction length (without prefix)
+                LD      B,A                     4   ;  Save the opcode
+                CALL    HL_IX_IY_PAIR           17  ;  Get the address of HL|IX|IY
+                EX      DE,HL                   4   ;  Put register pointer in DE
+                LD      A,B                     4   ;  Restore the opcode
+                JP      ARITH_INDEX_IN          10  ;  Jump to modify and perform the instruction
+I_ARITH_H_I     LD      C,1                     7   ;  Instruction length (without prefix)
+                LD      B,A                     4   ;  Save the opcode
+                CALL    HL_IX_IY_PAIR           17  ;  Get the address of HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                EX      DE,HL                   4   ;  Put register pointer in DE
+                LD      A,B                     4   ;  Restore the opcode
+                JP      ARITH_INDEX_IN          10  ;  Jump to modify and perform the instruction
+;
+; Instruction covered:  NEG
+;
+; Timing:   142 T-states
+;
+I_NEG           LD      BC,#ED02            10  ;  B = #ED (prefix) ; C = 2 (instruction length)
+                JP      I_SIMPLE_IN         10  ;  Execute like a simple instruction
+;
+; Instructions covered: JP  cc,nn ; JP  nn
+;
+; Timing (T-states):    JP  nn (62) ; JP  cc,nn (49+flag_test for fail ; 86+flag_test for pass)
+;
+I_JP_CC_NN      CALL    FLAG_TEST               17  ;  Go test the flag
+                JR      NZ,JP_TEST_FAIL         12/7 ; Jump if the flag test failed
+I_JP_NN         LD      HL,(EXECUTE_BUF+1)      16  ;  Fetch the address to jump to
+                LD      (REG_PCL),HL            16  ;  Put directly into program counter
+                POP     DE                      10  ;  Junk the return to the PC changing address
+JP_TEST_FAIL    LD      C,3                     10  ;  Instruction length (must use BC for this)
+                RET                             10
+;
+; Instruction covered:  JP  (HL)|(IX)|(IY)
+;
+; Timing:   T-states (+ GET_HL_IX_IY timing)
+;
+I_JP_IND_HL_I   LD      C,1                     7   ;  Instruction length  (without prefix)
+                CALL    GET_HL_IX_IY            17  ;  Fetch the location of the relevant register
+                LD      E,(HL)                  7   ;  Fetch the low byte of the word
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Fetch the high byte of the word
+                LD      (REG_PCL),DE            20  ;  Put directly into program counter
+                POP     HL                      10  ;  Junk the return to the PC changing address
+                RET                             10
+;
+; Instructions covered: JR  cc,e ; JR  e
+;
+; Timings (T-states):   JR  cc,e (49+flag_test for fail ; 138+flag_test for pass) ; JR  e (114)
+;
+I_JR_CC_E       CALL    FLAG_TEST               17  ;  Go test the flag
+                JR      NZ,JR_TEST_FAIL         12/7 ; Jump if the flag test failed
+I_JR_E          LD      A,(EXECUTE_BUF+1)       13  ;  Fetch the displacement
+                LD      HL,(REG_PC)             16  ;  Fetch the current PC
+                INC     HL                      6
+                INC     HL                      6   ;  Displacement is from PC+2 (after ther JR)
+                LD      E,A                     4   ;  We've got the low byte of the displacement
+                RLA                             4   ;  Put the sign bit in the carry
+                SBC     A,A                     4   ;  A becomes 255 if e is -ve, 0 otherwise
+                LD      D,A                     4   ;  Use this as the high byte
+                ADD     HL,DE                   11  ;  Calculate the new address
+                LD      (REG_PCL),HL            16  ;  Set the PC to this
+                POP     DE                      10  ;  Junk the return to PC changing code
+JR_TEST_FAIL    LD      C,2                     10  ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  DJNZ  e
+;
+; Timing (T-states):    48 (if B = 0 after decrement) ; 145 (if B <> 0 after decrement)
+;
+I_DJNZ_E        LD      HL,REG_B                10  ;  Point to B register contents
+                DEC     (HL)                    11  ;  Decrement B (WITHOUT affecting flags!)
+                JP      NZ,I_JR_E               10  ;  Jump if not zero to JR, to perform the jump
+                LD      C,2                     7   ;  Instruction length
+                RET                             10
+;
+; Instructions covered: RET cc ; RET
+;
+; Timings (T-states):   RET cc (+flag_test for fail ; +flag_test for pass) ; RET ()
+;                       The time to fetch bytes must be added for all performed RETs.
+;
+I_RET_CC        CALL    FLAG_TEST               17  ;  Test the flag
+                JR      NZ,RET_TEST_FAIL        12/7 ; Jump if the flag test failed
+I_RET           LD      HL,(REG_SPL)            16  ;  Fetch the current SP value
+                INC     HL                      6
+                INC     HL                      6   ;  Increment stack by 2, to new value
+                LD      (REG_SPL),HL            16  ;  Store the new stack in the register store
+                DEC     HL                      6
+                DEC     HL                      6   ;  Put stack back to original value
+                LD      DE,REG_PCL              10  ;  Fetch the address directly into PC
+                LD      C,2                     7   ;  Address is 2 bytes long
+                CALL    GET_BYTES               17  ;  Fetch the address to return to
+                POP     DE                      10  ;  Junk the return to PC changing code
+RET_TEST_FAIL   LD      C,1                     10  ;  Instruction length
+                RET
+;
+; Instructions covered: CALL cc,nn ; CALL nn
+;
+; Timings (T-states):   CALL cc,nn (+flag_test for fail ; +flag_test for pass) ; CALL nn ()
+;
+I_CALL_CC_NN    CALL    FLAG_TEST               17  ;  Test the flag
+                JR      NZ,CALL_TEST_FAIL       12/7 ; Jump if the flag test failed
+I_CALL_NN       LD      HL,(REG_PCL)            16  ;  Fetch our current position
+                INC     HL                      6
+                INC     HL                      6
+                INC     HL                      6   ;  Find the return location
+                LD      (TEMP_STORE1),HL        16  ;  Store the return address in a temp buffer
+                LD      HL,(EXECUTE_BUF+1)      16  ;  Fetch the address we're calling
+                LD      (REG_PCL),HL            16  ;  Set the PC to this address
+                LD      HL,(REG_SPL)            16  ;  Fetch the current SP value
+                DEC     HL                      6
+                DEC     HL                      6   ;  Point to the new position
+                LD      (REG_SPL),HL            16  ;  Return the new SP to the register store
+                LD      DE,TEMP_STORE1          10  ;  Point to the address we want to stack
+                LD      C,2                     7   ;  2 bytes to put
+                CALL    PUT_BYTES               17  ;  Put the bytes into snapshot memory
+                POP     DE                      10  ;  Junk the return to PC changing code
+CALL_TEST_FAIL  LD      C,3                     10  ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  RST p
+;
+; Timing:   T-states
+;
+I_RST_P         LD      HL,(REG_PCL)            16  ;  Fetch current PC value
+                INC     HL                      6   ;  RST is only one byte long
+                LD      (CALL_TEMP_BUF),HL      16  ;  Store the return address in a temp buffer
+                AND     %00111000               7   ;  Strip off the low bytes of the address
+                LD      L,A                     4
+                LD      H,0                     7   ;  RST address now formed in HL
+                LD      (REG_PCL),HL            16  ;  Set the PC to this address
+                LD      HL,(REG_SPL)            16  ;  Fetch the current SP value
+                DEC     HL                      6
+                DEC     HL                      6   ;  Point to the new position
+                LD      (REG_SPL),HL            16  ;  Return the new SP to the register store
+                LD      DE,CALL_TEMP_BUF        10  ;  Point to the address we want to stack
+                LD      C,2                     7   ;  2 bytes to put
+                CALL    PUT_BYTES               17  ;  Put the bytes into snapshot memory
+                POP     DE                      10
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  SP,HL|IX|IY
+;
+; Timing (T-states):    (+ GET_HL_IX_DE timing)
+;
+I_LD_SP_HL_I    LD      C,1                     7   ;  Normal instruction length (without prefix)
+                CALL    GET_HL_IX_IY            17  ;  Fetch the location of the relevant register
+                LD      E,(HL)                  7
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Fetch the value to put into SP
+                LD      (REG_SPL),DE            20  ;  Put into SP value in register store
+                RET                             10
+;
+; Instruction covered:  LD  A,(BC)
+;
+; Timing (T-states):
+;
+I_LD_A_IND_BC   LD      HL,(REG_C)              10  ;  Fetch the value of BC
+                LD      DE,REG_A                10  ;  Put the byte directly into A
+                LD      C,1                     7   ;  1 byte to fetch
+                CALL    GET_BYTES               17  ;  Make the fetch
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  (BC),A
+;
+; Timing (T-states):
+;
+I_LD_IND_BC_A   LD      HL,(REG_C)              10  ;  Fetch the value of BC
+                LD      DE,REG_A                10  ;  Move byte directly from A
+                LD      C,1                     7   ;  1 byte to put
+                CALL    PUT_BYTES               17  ;  Perform the put
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  A,(DE)
+;
+; Timing (T-states):
+;
+I_LD_A_IND_DE   LD      HL,(REG_E)              10  ;  Fetch the value of DE
+                LD      DE,REG_A                10  ;  Put the byte directly into A
+                LD      C,1                     7   ;  1 byte to fetch
+                CALL    GET_BYTES               17  ;  Make the fetch
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  (DE),A
+;
+; Timing (T-states):
+;
+I_LD_IND_DE_A   LD      HL,(REG_E)              10  ;  Fetch the value of DE
+                LD      DE,REG_A                10  ;  Move byte directly from A
+                LD      C,1                     7   ;  1 byte to put
+                CALL    PUT_BYTES               17  ;  Perform the put
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instructions covered: PUSH  AF|BC|DE  (HL|IX|IY jump part way into this routine)
+;
+; Timing (T-states):
+;
+I_PUSH_RR       LD      C,1                     7   ;  Instruction length
+                EXX                             4   ;  Save the length in C'
+                CALL    GET_REGSTACK            17  ;  Fetch the location of the reg pair in HL
+I_PUSH_IN       LD      DE,(REG_SPL)            20  ;  Fetch the current SP value
+                DEC     DE                      6
+                DEC     DE                      6   ;  Address needs 2 locations
+                LD      (REG_SPL),DE            20  ;  Return the new SP to the register store
+                LD      C,2                     7   ;  2 bytes to PUSH onto stack
+                CALL    PUT_BYTES               17  ;  Make the actual PUT
+                EXX                             4   ;  Restore the length in C
+                RET                             10
+;
+; Instructions covered: PUSH HL|IX|IY
+;
+; Timing (T-states):
+;
+I_PUSH_HL_I     LD      C,1                     7   ;  Instruction length (without prefix)
+                EXX                             4   ;  Save the length in C'
+                CALL    GET_HL_IX_IY            17  ;  Fetch the location of the relevant register
+                JP      I_PUSH_IN               10  ;  Jump to use the rest from the other PUSH
+;
+; Instructions covered: POP  AF|BC|DE
+;
+; Timing (T-states):
+;
+I_POP_RR        LD      C,1                     7   ;  Instruction length
+                EXX                             4   ;  Save the length in C'
+                CALL    GET_REG_STACK           17  ;  Fetch the location of the reg pair in HL
+I_POP_IN        EX      DE,HL                   4   ;  Move the reg pointer to DE
+                LD      HL,(REG_SPL)            16  ;  Fetch the current SP value
+                INC     HL                      6
+                INC     HL                      6   ;  Move SP to new location
+                LD      (REG_SPL),HL            16  ;  Save new SP in register store
+                DEC     HL                      6
+                DEC     HL                      6   ;  Move SP back to where the value is
+                LD      C,2                     7   ;  2 bytes to POP off stack
+                CALL    GET_BYTES               17  ;  Make the actual fetch
+                EXX                             4   ;  Restore the length in C
+                RET                             10
+;
+; Instructions covered: POP  HL|IX|IY
+;
+; Timing (T-states):
+;
+I_POP_HL_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                EXX                             4   ;  Save the length in C'
+                CALL    GET_HL_IX_IY            17  ;  Fetch the location of the relevant register
+                JP      NZ,POP_IN               10  ;  Jump if we're not using an index prefix
+                EXX                             4   ;  Get the instruction length from the alt set
+                INC     C                       4   ;  Increment the instruction length
+                EXX                             4   ;  Switch back to the pointer in the normal set
+                JP      I_POP_IN                10  ;  Jump to use the rest from the other POP
+;
+; Instruction covered:  EX  (SP),HL
+;
+; Timing (T-states):
+;
+I_EX_IND_SP_HL  LD      C,1
+                CALL    GET_HL_IX_IY            17  ;  Fetch the location of the relevant register
+                PUSH    BC                      11  ;  Save the instruction length
+                LD      E,(HL)                  7
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Fetch the current HL|IX|IY value
+                DEC     HL                      6
+                EX      DE,HL                   4   ;  Move the target address into DE
+                LD      (TEMP_STORE1),HL        16  ;  Keep the value in a safe place
+                LD      HL,(REG_SPL)            16  ;  Fetch the address of the top of the stack
+                LD      C,2                     7   ;  Get 2 bytes
+                PUSH    HL                      11  ;  Save the top of stack address
+                CALL    GET_BYTES               17  ;  Make the fetch to the register store
+                POP     DE                      10  ;  Set destination as the top of the stack
+                LD      HL,TEMP_STORE1          10  ;  Where to move the register value from
+                LD      C,2                     7   ;  2 bytes to put
+                CALL    PUT_BYTES               17  ;  Put the register pair at the stack top
+                POP     BC                      10  ;  Get the instruction length back into C
+                RET                             10
+;
+; Instruction covered:  LD  A,(nn)
+;
+; Timing:   T-states
+;
+I_LD_A_IND_NN   LD      HL,(EXECUTE_BUF+1)      16  ;  Get the address we're fetching from
+                LD      DE,REG_A                10  ;  Point to A in the register store
+                LD      C,1                     7   ;  1 byte to fetch
+                CALL    GET_BYTES               17  ;  Make the fetch
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  (nn),A
+;
+; Timing:   T-states
+;
+I_LD_IND_NN_A   LD      DE,(EXECUTE_BUF+1)      20  ;  Fetch the address to put byte at
+                LD      HL,REG_A                10  ;  Address of byte to put
+                LD      C,1                     7   ;  1 byte to put
+                CALL    PUT_BYTES               17  ;  Make the actual put
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+> ;
+> ; Instructions covered:   LD  r,n
+> ;
+> ; Timing (T-states):
+> ;
+> I_LD_R_N_I    LD      C,2                     7   ;  Instruction length (without prefix)
+>               CALL    GET_SINGLE_REG          17  ;  Get the register store position of the reg
+>               LD      DE,EXECUTE_BUF+1        10  ;  Normal data byte position
+>               JR      NZ,LD_R_X_INDEX         12/7 ; Jump if not loading an index register
+>               INC     DE                      6   ;  Set past opcode onto data byte
+> LD_R_X_INDEX  LD      A,(DE)                  7   ;  Get the data byte
+>               LD      (HL),A                  7   ;  Put it in the relevant register store pos
+>               RET                             10
+>
+*R*E*P*L*A*C*E*D* *B*Y*:*
+
+I_LD_C_N        LD      HL,REG_C                10
+                JR      GET_N_PUT_BYTE          12
+I_LD_B_N        LD      HL,REG_B                10
+                JR      GET_N_PUT_BYTE          12
+I_LD_E_N        LD      HL,REG_E                10
+                JR      GET_N_PUT_BYTE          12
+I_LD_D_N        LD      HL,REG_D                10
+                JR      GET_N_PUT_BYTE          12
+I_LD_A_N        LD      HL,REG_A                10
+GET_N_PUT_BYTE  LD      A,(EXECUTE_BUF+1)       13  ;  Fetch the data byte
+                LD      (HL),A                  7   ;  Dump into relevant register store position
+                LD      C,2                     7   ;  Instruction length
+                RET                             10
+I_LD_L_N_I      LD      C,2                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                JR      Z,LD_INDEX_N            12/7 ; Jump if using the index registers
+                LD      A,(EXECUTE_BUF+1)       13  ;  Get the data byte
+                LD      (HL),A                  7   ;  Dump into relevant register store position
+                RET
+I_LD_H_N_I      LD      C,2                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                INC     HL                      6   ;  Point to the high byte
+                JR      Z,LD_INDEX_N            12/7 ; Jump if using the index registers
+                LD      A,(EXECUTE_BUF+1)       13  ;  Get the data byte
+                LD      (HL),A                  7   ;  Dump into relevant register store position
+                RET
+LD_INDEX_N      LD      A,(EXECUTE_BUF+2)       13  ;  Get the data byte
+                LD      (HL),A                  7   ;  Dump into relevant register store position
+                RET                             10
+
+> ;
+> ; Instructions covered:   LD  dd,nn
+> ;
+> ; Timing (T-states):
+> ;
+> LD_DD_NN_I    LD      C,3                     7   ;  Instruction length (without prefix)
+>               CALL    GET_REG_PAIR            17  ;  Get the register store address of the pair
+>               LD      DE,EXECUTE_BUF+1        10  ;  Normal position of data word
+>               JR      NZ,LD_DD_X_INDEX        12/7 ; Jump if not loading an index register
+>               INC     DE                      6   ;  Step past the opcode byte
+> LD_DD_X_INDEX LD      A,(DE)                  7   ;  Pick up the low byte of the word
+>               LD      (HL),A                  7   ;  Dump into register store
+>               INC     DE                      6
+>               INC     HL                      6
+>               LD      A,(DE)                  7   ;  Pick up the high byte of the word
+>               LD      (HL),A                  7   ;  Dump the high byte to the register store
+>               RET                             10
+*R*E*P*L*A*C*E*D* *B*Y*:*
+
+I_LD_BC_NN      LD      HL,REG_C                10
+                JR      GET_N_PUT_WORD          12
+I_LD_SP_NN      LD      HL,REG_SPL              10
+                JR      GET_N_PUT_WORD          12
+I_LD_DE_NN      LD      HL,REG_E                10
+GET_N_PUT_WORD  LD      DE,(EXECUTE_BUF+1)      20  ;  Fetch the word to load
+                LD      (HL),E                  7   ;  Dump the low byte
+                INC     HL                      6   ;  Move to high byte position
+                LD      (HL),D                  7   ;  Dump the high byte
+                LD      C,3                     7   ;  Instruction length
+                RET
+I_LD_HL_NN_I    LD      C,3                     7   ;  Instruction length
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                JR      Z,LD_INDEX_NN           12/7 ; Jump if using the index registers
+                LD      DE,(EXECUTE_BUF+1)      20  ;  Fetch the word to load
+                LD      (HL),E                  7   ;  Dump the low byte
+                INC     HL                      6   ;  Move to high byte position
+                LD      (HL),D                  7   ;  Dump the high byte
+                RET
+LD_INDEX_NN     LD      DE,(EXECUTE_BUF+2)      20  ;  Fetch the word to load
+                LD      (HL),E                  7   ;  Dump the low byte
+                INC     HL                      6   ;  Move to high byte position
+                LD      (HL),D                  7   ;  Dump the high byte
+                RET
+;
+; Instructions covered: DEC  rr
+;
+; Timing (T-states):
+;
+I_DEC_DE        LD      HL,REG_E                10
+                JR      DEC_RR_PAIR             12
+I_DEC_SP        LD      HL,REG_SPL              10
+                JR      DEC_RR_PAIR             12
+I_DEC_BC        LD      HL,REG_C                10
+DEC_RR_PAIR     LD      C,1                     7   ;  Instruction length
+DEC_IN          LD      E,(HL)                  7   ;  Pick up the low byte
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Pick up the high byte
+                DEC     DE                      6   ;  Make the decrement
+                LD      (HL),D                  7   ;  Replace the high byte
+                DEC     HL                      6
+                LD      (HL),E                  7   ;  Replace the low byte
+                RET
+I_DEC_HL_I      LD      C,1                     7   ;  Instruction length
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                JP      DEC_IN                  10  ;  Do the rest of the instruction in normal DEC
+;
+; Instructions covered: INC  rr
+;
+; Timing (T-states):
+;
+I_INC_BC        LD      HL_REG_C                10
+                JR      INC_RR_PAIR             12
+I_INC_SP        LD      HL,REG_SPL              10
+                JR      INC_RR_PAIR             12
+I_INC_DE        LD      HL,REG_E                10
+INC_RR_PAIR     LD      C,1                     7   ;  Instruction length
+INC_IN          LD      E,(HL)                  7   ;  Pick up the low byte
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Pick up the high byte
+                INC     DE                      6   ;  Make the increment
+                LD      (HL),D                  7   ;  Replace the high byte
+                DEC     HL                      6
+                LD      (HL),E                  7   ;  Replace the low byte
+                RET
+I_INC_HL_I      LD      C,1                     7   ;  Instruction length
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                JP      INC_IN                  10  ;  Do the rest of the instruction in normal INC
+;
+; Instructions covered: ADD  HL,rr
+;
+; Timing (T-states):
+;
+I_ADD_HL_BC_I   LD      HL,REG_C                10
+                JR      ADD_HL_RR               12
+I_ADD_HL_DE_I   LD      HL,REG_E                10
+                JR      ADD_HL_RR               12
+I_ADD_HL_SP_I   LD      HL,REG_SPL              10
+                JR      ADD_HL_RR               12
+I_ADD_HL_HL_I   CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+ADD_HL_RR       LD      E,(HL)                  7   ;  Pick up the low byte
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Pick up the high byte
+                PUSH    DE                      11  ;  Save the second operand
+                LD      C,1                     7   ;  Instruction length
+                CALL    HL_IX_IY_PAIR           17  ;  Fetch a pointer to HL|IX|IY
+                LD      E,(HL)                  7   ;  Pick up the low byte
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Pick up the high byte to form first operand
+                LD      HL,(REG_FLAGS)          16  ;  Get the current flags
+                PUSH    HL                      11
+                POP     AF                      10  ;  Activate the Simulator flags
+                POP     HL                      10  ;  Restore the second operand
+                ADD     HL,DE                   11  ;  Peform the actual add
+                LD      (REG_L),HL              16  ;  Save the new HL value
+                PUSH    AF                      11
+                POP     HL                      10
+                LD      (REG_FLAGS),HL          16  ;  Put the new flags back into the reg store
+                RET
+;
+; Instructions covered: ADC  HL,rr
+;
+; Timing (T-states):
+;
+I_ADC_HL_BC     LD      HL,REG_C                10
+                JR      ADC_HL_RR               12
+I_ADC_HL_DE     LD      HL,REG_E                10
+                JR      ADC_HL_RR               12
+I_ADC_HL_SP     LD      HL,REG_SPL              10
+                JR      ADC_HL_RR               12
+I_ADC_HL_HL     LD      HL,REG_L                10
+ADC_HL_RR       LD      A,#5A                   7   ;  Opcode part of ADC HL,rr along with ED prefix
+SBC_HL_RR_IN    LD      (ADC_SBC_SMOD+1),A      13  ;  Do the self modification
+                LD      E,(HL)                  7   ;  Pick up the low byte
+                INC     HL                      6
+                LD      D,(HL)                  7   ;  Pick up the high byte
+                LD      HL,(REG_FLAGS)          16  ;  Get the current flags
+                PUSH    HL                      11
+                POP     AF                      10  ;  Activate the flags
+                LD      HL,(REG_L)              16  ;  Get the current HL value
+ADC_SBC_SMOD    DEFB    #ED, 0                  15  ;  Peform the ADC/SBC
+                LD      (REG_L),HL              16  ;  Save the new HL value
+                PUSH    AF                      11
+                POP     HL                      10
+                LD      (REG_FLAGS),HL          16  ;  Put the new flags back into the reg store
+                LD      C,2                     7   ;  Instruction length
+                RET                             10
+;
+; Instructions covered: SBC  HL,rr
+;
+; Timing (T-states):
+;
+I_SBC_HL_BC     LD      HL,REG_C                10
+                JR      SBC_HL_RR               12
+I_SBC_HL_DE     LD      HL,REG_E                10
+                JR      SBC_HL_RR               12
+I_SBC_HL_SP     LD      HL,REG_SPL              10
+                JR      SBC_HL_RR               12
+I_SBC_HL_HL     LD      HL,REG_L                10
+SBC_HL_RR       LD      A,#62                   7   ;  Opcode part of SBC HL,rr along with ED prefix
+                JP      SBC_HL_RR_IN            10  ;  Jump to modify and run the code
+;
+; Instruction covered:  LD  A,I
+;
+; Timing (T-states):
+;
+I_LD_A,I        LD      A,(REG_INT_VECTOR)      13  ;  Get the current I value
+                LD      (REG_A),A               13  ;  Dump into A
+                LD      C,2                     7   ;  Instruction length
+                RET                             10
+;
+; Instruction covered:  LD  I,A     [ has no effect on the flags yet ]
+;
+; Timing (T-states):
+;
+I_LD_I_A        LD      A,(REG_A)               13  ;  Pick up current A value
+                LD      (REG_INT_VECTOR),A      13  ;  Dump into Interrupt vector register
+                LD      C,2                     7   ;  Instruction length
+                RET
+;
+; Instructions covered: LD  (nn),HL|IX|IY
+;
+; Timing (T-states):
+;
+I_LD_NN_HL_I    LD      C,3                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY address in register store
+                PUSH    BC                      11  ;  Save the instruction length
+                JR      NZ,LD_NN_HL             12  ;  Jump if not using the index registers
+                LD      DE,(EXECUTE_BUF+2)      20  ;  Pick up the address to put the pair at
+                JR      REJOIN_NN_I             12  ;  Jump to rejoin the main code
+LD_NN_HL        LD      DE,(EXECUTE_BUF+1)      20  ;  Pick up the address to put the pair at
+REJOIN_NN_I     LD      C,2                     7   ;  2 bytes to put
+                CALL    PUT_BYTES               17  ;  Make the actual PUT
+                POP     BC                      10  ;  Restore the instruction length in C
+                RET                             10
+;
+; Instructions covered: LD  HL|IX|IY,(nn)
+;
+; Timing (T-states):
+;
+I_LD_HL_NN_I    LD      C,3                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY address in register store
+                PUSH    BC                      11  ;  Save the instruction length
+                EX      DE,HL                   4   ;  Put the target pair in DE
+                JR      NZ,LD_HL_NN             12  ;  Jump if not using the index registers
+                LD      HL,(EXECUTE_BUF+2)      16  ;  Pick up the address to get the pair from
+                JR      REJOIN_I_NN             12  ;  Jump to rejoin the main code
+LD_HL_NN        LD      HL,(EXECUTE_BUF+1)      16  ;  Pick up the address to get the pair from
+REJOIN_I_NN     LD      C,2                     7   ;  2 bytes to fetch
+                CALL    GET_BYTES               17  ;  Make the actual fetch
+                POP     BC                      10  ;  Restore the instruction length in C
+                RET                             10
+
+;
+; Instructions covered: INC  r
+;
+; Timing (T-states):
+;
+I_INC_C         LD      DE,REG_C                10
+                JR      INC_R_IN                12
+I_INC_B         LD      DE,REG_B                10
+                JR      INC_R_IN                12
+I_INC_E         LD      DE,REG_E                10
+                JR      INC_R_IN                12
+I_INC_D         LD      DE,REG_D                10
+INC_R_IN        LD      C,1                     7   ;  Instruction length
+I_INC_INDEX     LD      HL,(REG_FLAGS)          16  ;  Fetch the current flags
+                PUSH    HL                      11
+                POP     AF                      10  ;  Activate the Sim flags
+                INC     (HL)                    11  ;  Perform the increment
+                PUSH    AF                      11
+                POP     HL                      10
+                LD      (REG_FLAGS),HL          16  ;  Save the new flags
+                RET                             10
+I_INC_L_I       LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY address in register store
+                EX      DE,HL                   4   ;  Put address in DE
+                JP      I_INC_INDEX             10  ;  Jump to perform rest of instruction
+I_INC_H_I       LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY address in register store
+                INC     HL                      6   ;  Point to high byte
+                EX      DE,HL                   4   ;  Put address in DE
+                JP      I_INC_INDEX             10  ;  Jump to perform rest of instruction
+;
+; Instructions covered: LD  r,r'
+;
+; Timings (T-states):
+;
+
+; Load into B
+I_LD_B_C        LD      A,(REG_C)               13
+                JR      LD_INTO_B               12
+I_LD_B_D        LD      A,(REG_D)               13
+                JR      LD_INTO_B               12
+I_LD_B_E        LD      A,(REG_E)               13
+                JR      LD_INTO_B               12
+I_LD_B_A        LD      A,(REG_A)               13
+LD_INTO_B       LD      (REG_B),A               13  ;  Load into B
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+I_LD_B_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_B),A               13  ;  Load into B
+                RET                             10
+I_LD_B_L_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_B),A               13  ;  Load into B
+                RET                             10
+
+; Load into C
+I_LD_C_B        LD      A,(REG_B)               13
+                JR      LD_INTO_C               12
+I_LD_C_D        LD      A,(REG_D)               13
+                JR      LD_INTO_C               12
+I_LD_C_E        LD      A,(REG_E)               13
+                JR      LD_INTO_C               12
+I_LD_C_A        LD      A,(REG_A)               13
+LD_INTO_C       LD      (REG_C),A               13  ;  Load into C
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+I_LD_C_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_C),A               13  ;  Load into C
+                RET                             10
+I_LD_C_L_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_C),A               13  ;  Load into C
+                RET                             10
+
+; Load into D
+I_LD_D_B        LD      A,(REG_B)               13
+                JR      LD_INTO_D               12
+I_LD_D_D        LD      A,(REG_D)               13
+                JR      LD_INTO_D               12
+I_LD_D_C        LD      A,(REG_C)               13
+                JR      LD_INTO_D               12
+I_LD_D_A        LD      A,(REG_A)               13
+LD_INTO_D       LD      (REG_D),A               13  ;  Load into D
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+I_LD_D_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_D),A               13  ;  Load into D
+                RET                             10
+I_LD_D_L_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_D),A               13  ;  Load into D
+                RET                             10
+
+; Load into E
+I_LD_E_B        LD      A,(REG_B)               13
+                JR      LD_INTO_E               12
+I_LD_E_D        LD      A,(REG_D)               13
+                JR      LD_INTO_E               12
+I_LD_E_C        LD      A,(REG_C)               13
+                JR      LD_INTO_E               12
+I_LD_E_A        LD      A,(REG_A)               13
+LD_INTO_E       LD      (REG_E),A               13  ;  Load into E
+                LD      C,1                     7   ;  Instruction length
+                RET                             10
+I_LD_E_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_E),A               13  ;  Load into E
+                RET                             10
+I_LD_E_L_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                LD      A,(HL)                  7   ;  Fetch the register value
+                LD      (REG_E),A               13  ;  Load into E
+                RET                             10
+
+; Load into L|IXl|IYl
+I_LD_L_B_I      LD      A,(REG_B)               13
+                JR      LD_INTO_L_I             12
+I_LD_L_D_I      LD      A,(REG_D)               13
+                JR      LD_INTO_L_I             12
+I_LD_L_C_I      LD      A,(REG_C)               13
+                JR      LD_INTO_L_I             12
+I_LD_L_A_I      LD      A,(REG_A)               13
+LD_INTO_L_I     LD      C,1                     7   ;  Instruction length (without prefix)
+                EX      AF,AF'                  4   ;  Save value to be put
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                EX      AF,AF'                  4   ;  Restore value to be put
+                LD      (HL),A                  7   ;  Make the load into L|IXl|IYl
+                RET                             10
+I_LD_L_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point at the high byte
+                LD      A,(HL)                  7   ;  Fetch the register value
+                DEC     HL                      6   ;  Point at low byte
+                LD      (HL),A                  7   ;  Load into low byte
+                RET
+
+; Load into H|IXh|IYh
+I_LD_H_B_I      LD      A,(REG_B)               13
+                JR      LD_INTO_H_I             12
+I_LD_H_D_I      LD      A,(REG_D)               13
+                JR      LD_INTO_H_I             12
+I_LD_H_C_I      LD      A,(REG_C)               13
+                JR      LD_INTO_H_I             12
+I_LD_H_A_I      LD      A,(REG_A)               13
+LD_INTO_H_I     LD      C,1                     7   ;  Instruction length (without prefix)
+                EX      AF,AF'                  4   ;  Save value to be put
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                INC     HL                      6   ;  Point to high byte
+                EX      AF,AF'                  4   ;  Restore value to be put
+                LD      (HL),A                  7   ;  Make the load into L|IXH|IYH
+                RET                             10
+I_LD_L_H_I      LD      C,1                     7   ;  Instruction length (without prefix)
+                CALL    HL_IX_IY_PAIR           17  ;  Get HL|IX|IY
+                LD      A,(HL)                  7   ;  Fetch the register value
+                INC     HL                      6   ;  Point at high byte
+                LD      (HL),A                  7   ;  Load into high byte
+                RET

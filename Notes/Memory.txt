@@ -1,0 +1,334 @@
+M E M O R Y   H A N D L I N G
+=============================
+
+S A M    M E M O R Y    L A Y O U T
+-----------------------------------
+
+     +---------------+                               +---------------+
+     |     ROM 0     |                               |     ROM 1     |
+     +---------------+---------------+---------------+---------------+
+     |    BLOCK A    |    BLOCK B    |    BLOCK C    |    BLOCK D    |
+     +---------------+---------------+---------------+---------------+
+     0             16384           32768           49152           65535
+
+
+When paged in, ROM 0 covers RAM block A, and ROM 1 covers RAM block D.
+
+
+M E M O R Y    M A N A G E M E N T    U N I T 
+---------------------------------------------
+
+The MMU handles the fetching and putting of data into the simulator memory
+area. PORT_LMPR and PORT_HMPR hold the current values that the read ports
+would have, and are used to find out which page the 'address' lies in.
+
+Since the below code was written, it has been decided that this code can be
+further optimised. See after the code block for the new code...
+
+> ************
+> * OLD CODE *
+> ************
+> Both routines would be so similar, a common piece of code is used, with 2 direct
+> changes being made to the code, to allow putting and getting.
+> 
+> 
+> GET_BYTE:
+> Entry:  HL - address of required byte
+> Exit:   A  - contents of given address in simulator memory
+>         HL - (unchanged from entry)
+> 
+> PUT_BYTE:
+> Entry   HL - address to deposit byte at
+>         A  - byte to deposit at address
+> Exit:   A  - new contents of address (re-read since ROM writes have no effect)
+>         HL - (unchanged from entry)
+> 
+> Note: The actual port values are preserved with both routines. BC, DE and AF'
+>       are corrupted - should be saved by calling program (keeps speed high).
+> 
+> 
+> ; Memory management code
+> ;
+> ; Actual port numbers
+> LMPR    EQU  250
+> HMPR    EQU  251
+> ;
+> ; The values the simulator ports hold
+> LMPR_VAL  DEFB x    ; Set initially to %00111111 (ROM0 on, ROM1 off, RAM page 31 in block A)
+> HMPR_VAL  DEFB x    ; Set initially to %00000001 (RAM page 1 in block C)
+> ;
+> ; Bit positions in LMPR for certain information
+> ROM0_BIT  EQU  5    ; Set if RAM replaces ROM0 in block A
+> ROM1_BIT  EQU  6    ; Set if ROM1 replaces RAM in block D
+> WRITE_PRO EQU  7    ; Set if RAM in block A is write-protected
+> 
+> 
+> PUT_BYTE     EX   AF,AF'    ; Save the byte we are about to put
+>              LD   A,119     ; LD (HL),A
+>              LD   (GET_PUT1),A   ; Make the 'PUT' changes
+>              LD   (GET_PUT2),A
+>              EX   AF,AF'
+>              JP   GET_PUT_BYTE
+> 
+> GET_BYTE     LD   A,126     ; LD A,(HL)
+>              LD   (GET_PUT1),A   ; Make the 'GET' changes
+>              LD   (GET_PUT2),A
+>              ; Fall through into the main GET_PUT_BYTE routine
+> 
+> GET_PUT_BYTE LD   C,HMPR    ; This is where we page everything in (32768)
+>              IN   E,(C)     ; Save old HMPR value
+>              BIT  7,H
+> BLOCK_C_D    JR   Z,READ_LOW          ; Read if 32767 >= ADDR >= 0
+>              LD   D,(IY+HMPR_VAL)     ; Get simulator HMPR value
+>              BIT  6,H
+>              JR   Z,MAKE_READ         ; Read byte from block C
+> BLOCK_D      BIT  ROM1_BIT,(IY+LMPR_VAL)   ; Check whether ROM1 is paged in
+>              JR   NZ,READ_LOW         ; Read from ROM1 if it is
+> MAKE_READ    DI                       ; Start of critical section
+>              OUT  (C),D               ; Put page D at 32768
+> GET_PUT1     LD   A,(HL)              ; Make actual fetch
+>              LD   A,(HL)              ; [only used for PUT_BYTE]
+>              OUT  (C),E               ; Restore actual HMPR
+>              EI                       ; End of critical section
+>              RET                      ; Done
+> ; READ_LOW allows the ROMs to be read from. It puts page 'D' in block A_B and
+> ; pages in whichever ROMs are active. Our program is put in block C while the
+> ; important paging/reading is done.
+> READ_LOW     LD   D,(IY+LMPR_VAL)     ; Get simulator LMPR value
+>              DEC  C                   ; C = LMPR
+>              IN   B,(C)               ; Find what page we are in
+>              EX   AF,AF'              ; Possibly save 'put' byte
+>              LD   A,B                 ; Get LMPR port value
+>              AND  %00011111           ; Mask off palette affecting bits leaving only page no.
+>              DI                       ; Start of critical section
+>              OUT  (HMPR),A            ; Page in in block C_D
+>              EX   AF,AF'              ; Possibly restore 'put' byte
+>              CALL 32768+GET_ROM_BYTE  ; Call GET_ROM_BYTE in other version
+>              INC  C                   ; C = HMPR
+>              OUT  (C),E               ; Restore actual HMPR
+>              EI                       ; End of critical section
+>              RET                      ; Done
+> GET_ROM_BYTE OUT  (C),D               ; Page the ROM in and me out, of block A
+> GET_PUT2     LD   A,(HL)              ; Make actual fetch
+>              LD   A,(HL)              ; [only used for PUT_BYTE]
+>              OUT  (C),B               ; Page me back in in block A_B
+>              RET                      ; Return to original version
+>
+
+
+Since memory accesses are required for every instruction and sometime up to 6 per instruction
+[LD IX,(nn)], the code should run as fast as possible, mainly when running code in the normal RAM
+pages. Code in the ROM is not quite so critical since people wouldn't use the ROM if they wanted
+their programs to be optimal! (except for taking advantage of the 8% speedup in ROM due to lack of
+RAM contention).
+
+CHANGES from the old code to the new code:
+
+        i) Split the routines into separate PUT and GET routines:
+           Previously the GET routine couldn't use the accumulator since it may be being used as a
+           PUT routine. The new GET routine is free to use A - it's quicker to use OUT (n),A for
+           the paging, and something like LD r,(HL) to fetch the byte from memory.
+
+       ii) actual HMPR not restored after every read:
+           It's a waste of time to restore this since block C_D only holds screen data and when
+           running flat out the Simulator screen is unused so we don't need to worry about it.
+           Instead, the screen will be paged in every time it is written to/scrolled. However, we
+           must ensure ROM 1 is paged out since this would interfere with reading from block D RAM.
+
+      iii) reduce number of decisions to make:
+           Currently decisions are made as to whether a read/write is to the ROMs for EVERY access
+           which is silly. Instead the decision will be made when the port is written to... and the
+           address of the relevant routine will be patched directly into the main get/put code.
+
+       iv) Simulator HMPR/LMPR not picked from (IY+d) anymore:
+           This read can also be avoided since the actual value can be patches in the same way as
+           the routine addresses in iii)
+
+        v) GET and PUT routines no longer return a single byte:
+           Getting one byte at a time is inefficient. Fetching more bytes will not take much longer
+           and will save time over all instructions except single byte instructions with no data
+           bytes (eg. SCF). This overhead will be more than made up for by the rest of the
+           instruction set.
+
+
+G E T   B Y T E S
+=================
+
+GET_BYTES performs a transparent fetching of blocks of bytes from the Simulated program memory. The
+fetch address can lie in any anywhere within the 64k address space currently seen as paged in by the
+program being simulated. The simulator port values are used to determine what is currently paged in
+where. Bits 6 and 7 of the high byte of the address are analysed to work out which block it lies in
+and the routine to handle that block is jumped to. If a block of bytes overlaps a page boundry, the
+fetch address is re-examined to find out which block the new bytes should be fetched from ; if this
+is the case, the fetch will take slightly longer. As long as there are no important loops in which
+an instruction lie across a boundry, this slow down shouldn't be noticed.
+
+The routine is entered with HL holding the address of the bytes which wish to fetch ; C holding the
+number of bytes to fetch and DE pointing to a buffer in the simulator program memory where the bytes
+are to be deposited.
+
+;
+; New Code
+;
+
+LMPR            EQU  250        ; LMPR port value
+HMPR            EQU  251        ; HMPR port value
+
+PORT_LMPR       DEFB    x       ; Simulator value of LMPR
+PORT_HMPR       DEFB    x       ; Simulator value of HMPR
+
+; Bit positions within LMPR
+ROM0_BIT        EQU  5          ; Set if RAM replaces ROM0 in block A
+ROM1_BIT        EQU  6          ; Set if ROM1 replaces RAM in block D
+WRITE_PRO       EQU  7          ; Set if RAM in block A is write-protected
+
+;
+; GET_BYTES:    Entry:  HL=fetch address ; DE=target buffer ; C=bytes to fetch
+;               Exit:   none
+;               Corrupts: AF, AF', BC, DE, HL (HMPR)
+;
+GET_BYTES       LD      B,0                     7    ; Reset high byte of byte count
+                LD      A,H                     4    ; Fetch the high byte of the address
+                EX      AF,AF'                  4    ; Save H since we may corrupt it
+NEXT_BLOCK      BIT     7,H                     8
+                JR      Z,BLOCK_A_B             12/7 ; Jump if in block A_B
+                BIT     6,H                     8
+PATCH_HMPR      LD      A,xxx                   7    ; Simulator HMPR patched in here
+                JP      Z,GET_RAM_C_D           10   ; Always read from RAM C
+PATCH_ADDR_D    JP      xxxxx                   10   ; ROM1 or RAM call here
+BLOCK_A_B       BIT     6,H                     8
+PATCH_LMPR      LD      A,xxx                   7    ; Simulator LMPR patched in here
+                JP      NZ,GET_RAM_A_B          10   ; Always read from RAM B
+PATCH_ADDR_A    JP      xxxxx                   10   ; ROM or RAM call here
+
+;
+; Handler for reading from any RAM pages in any position
+GET_RAM_A_B     SET     7,H                     8    ; Point to above 32768
+GET_RAM_C_D     OUT     (HMPR),A                11   ; Page where we want to read from
+GET_MORE_LP     LDI                             16   ; Move the byte to the buffer
+                RET     PO                      11/5 ; Exit GET_BYTES if we're done
+                LD      A,H                     4
+                AND     %00111111               7    ; Check to see if we've crossed the boundry
+                OR      L                       4    ;  of a 16K block
+                JP      NZ,GET_MORE_LP          10   ; Loop if not over block boundry
+                EX      AF,AF'                  4    ; Fetch original high byte
+                INC     A                       7    ; Step into next block boundry
+                LD      H,A                     4    ; Restore high byte of fetch address
+                JP      NEXT_BLOCK              10   ; Go fetch from new block
+;
+; Handler for reading from ROM 1
+GET_ROM1        IN      A,(LMPR)                11   ; Read current LMPR
+                OR      %01000000               7    ; Set the ROM 1 bit (on)
+                OUT     (LMPR),A                11   ; Activate the ROM
+MORE_ROM1_LOOP  LDI                             16   ; Move the byte to the buffer
+                JP      PO,ROM1_DONE            10   ; Jump to restore LMPR if we're finished
+                LD      A,H                     4
+                AND     %00111111               7    ; Check to see if we've crossed the boundry
+                OR      L                       4    ;  of a 16K block
+                JP      NZ,MORE_ROM1_LOOP       10   ; Loop if not over block boundry
+                EX      AF,AF'                  4    ; Fetch original high byte
+                INC     A                       4    ; Step into next block boundry
+                LD      H,A                     4    ; Restore high byte of fetch address
+                IN      A,(LMPR)                11   ; Read current LMPR
+                AND     %10111111               7    ; Reset the ROM 1 bit (off)
+                OUT     (LMPR),A                11   ; Deactivate the ROM
+                JP      PATCH_ADDR_A            10   ; Take the short-cut to block A
+
+ROM1_DONE       IN      A,(LMPR)                11   ; Read current LMPR
+                AND     %10111111               7    ; Reset the ROM 1 bit (off)
+                OUT     (LMPR),A                11   ; Deactivate the ROM  
+                RET                             10   ; Exit GET_BYTES
+;
+; Handler for reading ROM 0  (i hate this one...)
+GET_ROM0        IN      A,(LMPR)                11   ; Read from LMPR port
+                LD      B,A                     4    ; Save the port value
+                AND     %00011111               7    ; Strip out what page WE lie in
+                OUT     (HMPR),A                11   ; Page use in at in block C
+                LD      A,B                     4    ; Fetch the saved port value
+                AND     %11011111               7    ; Reset the ROM 0 bit (on)
+                JP      32768+ROM0_READ         10   ; Go to the version in block C
+
+ROM0_READ       OUT     (LMPR),A                11   ; Activate ROM 0
+                SET     7,D                     8    ; Set the buffer pointer to the block C version
+                LD      B,0                     7    ; Reset the high byte of the counter
+MORE_ROM0_LOOP  LDI                             16   ; Fetch a byte (at last!!)
+                JP      PO,32768+ROM0_DONE      10   ; Jump to restore LMPR if we're finished
+                LD      A,H                     4    ; Fetch high byte of source address
+                AND     %00111111               7    ; Check to see if we've crossed the boundry
+                OR      L                       4    ;  of a 16K block
+                JP      NZ,MORE_ROM0_LOOP       10   ; Loop if not over block boundry
+                RES     7,D                     8    ; Set the buffer pointer to the block A version
+                EX      AF,AF                   4    ; Fetch original high byte
+                INC     A                       4    ; Step into next block boundry
+                LD      H,A                     4    ; Restore high byte of fetch address
+                IN      A,(LMPR)                11   ; Read current LMPR
+                OR      %00100000               7    ; Set the ROM 0 bit (off)
+                OUT     (LMPR),A                11   ; Deactivate the ROM
+                JP      PATCH_LMPR              10   ; Take the short-cut to block B
+
+ROM0_DONE       IN      A,(LMPR)                11   ; Read current LMPR
+                OR      %00100000               7    ; Set the ROM 0 bit (off)
+                OUT     (LMPR),A                11   ; Deactivate the ROM
+                RET                             10   ; Exit GET_BYTES (back to block A version)
+
+P U T   B Y T E S
+=================
+
+The routine is entered with HL holding the address of the bytes which wish to fetch ; C holding the
+number of bytes to fetch and DE pointing to a buffer in the simulator program memory where the bytes
+are to be deposited.
+
+;
+; PUT_BYTES
+
+
+P A T C H I N G
+---------------
+
+Whenever the ports are written to and the paging status could have changed, we must analyse the port
+value to re-patch the GET_BYTES and PUT_BYTES routines (PUT not implemented yet) with the addresses
+of the routines to fetch data from the different blocks.
+
+Note: Since LMPR holds a bit to show whether ROM 1 is paged in at block D, we must update the HMPR
+      routine address when it is changed.
+
+;
+; Do_Patch_LMPR - Called after every change of LMPR to alter GET_BYTES/PUT_BYTES
+;
+; No entry/exit conditions
+;
+DO_PATCH_LMPR   LD      A,(PORT_LMPR)           13   ; Fetch simulator value of LMPR
+                LD      B,A                     4
+                AND     %00011111               7    ; Strip out page number
+                LD      (PATCH_LMPR+1),A        13   ; Patch value into GET_BYTES
+                LD      HL,GET_RAM_C_D          10
+                BIT     ROM1_BIT,B              8    ; Check if ROM1 is paged in
+                JR      Z,DO_PATCH_D            12/7 ; Jump if it isn't
+                LD      HL,GET_ROM1             10
+DO_PATCH_D      LD      (PATCH_ADDR_D+1),HL     16   ; Insert the relevant routine address
+                LD      HL,GET_ROM0             10
+                BIT     ROM0_BIT,B              8    ; Check if ROM0 is paged in
+                JR      Z,DO_PATCH_A            12/7 ; Jump is it is
+                LD      HL,GET_RAM_A_B          10
+DO_PATCH_A      LD      (PATCH_ADDR_A+1),HL     16   ; Insert the relevant routine address
+                RET
+;
+; Do_Patch_HMPR - Called after every change of HMPR to alter GET_BYTES/PUT_BYTES
+;
+; No entry/exit conditions
+;
+DO_PATCH_HMPR   LD      A,(PORT_HMPR)           13   ; Fetch simulator value of HMPR
+                AND     %00011111               7    ; Strip out page number
+                LD      (PATCH_HMPR+1),A        13   ; Patch value into GET_BYTES
+                RET
+
+
+
+
+ignore these... I probably won't use them anyway... they're from the old version
+
+> Fetch Timings for the above routine:  (n) = timing if reading from ROM.
+> 
+>       Block A         Block B         Block C         Block D
+>       236 (236)       236             162             184 (287)
+>

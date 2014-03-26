@@ -1,0 +1,147 @@
+D E C O D E   P H A S E
+=======================
+
+Original idea:
+> 
+> To be able to simulate the instruction set we must first break it down into some simple patterns.
+> The tables below show how the instruction set has been broken down. We end up with many sets of
+> instructions each maving a 'mask' and a 'compare' byte. An opcode should be ANDed with the mask
+> and then ComPared to the compare byte - if it matches then the instruction is in that set. This
+> can be done with all the masks and compares to find out which set the instruction is in so that
+> it can be simulated.
+
+ Breaking the instruction set down into sets is still of great use to use but using the mask/compare
+ method for decoding is very slow! (40 mask/compares to do ... say 40 T-states per mask/compare
+ loop ... gives 1600 T-states for the worst case!!!). The solution to this is to have a 512 byte
+ look-up table which holds the address of a handling routine for EVERY instruction. The instruction
+ 'sets' are still used so a lot of the routine addresses are duplicated. The routine address is
+ simple picked out of the table and jumped to.
+
+
+K E Y S
+-------
+
+Key to mask flags:
+    rr  Register Pairs
+    rrr Single registers
+    RRR Single registers
+    b   Bit position for bit/set/res
+    o   Opcode - position in opcode list
+    R   Repeat bit for block instructions
+    d   Direction bit for block instructions
+    x   Bit doesn't matter
+    f   Condition flags
+    n   RST address/8
+    m   Interrupt modes
+
+All the flags in the masks should be replaced by zeros in the final mask.
+
+Key to function flags:
+
+    ' '   Instruction can be executed without trapping.
+    '+'   Instruction needs it's own routine (special instruction or accesses memory directly).
+    '*'   Instruction involves (HL) (IX+d) or (IY+d) and needs attention.
+    '-'   Instruction should have no effect and can be ignored - used to ignore interrupt stuff.
+    '?'   Not decided what to do with this instruction yet.   [hope there aren't many of these!]
+    NAME: This is the name of the function that handles the simulation of this instruction.
+
+Key to register abbreviations:
+
+    Flags       :   NZ|Z|NC|C|PO|PE|P|M     [Short flag list is first 4 entries]
+    HLIndir     :   ([HL|IX|IY])
+    HLDirect    :   [HL|IX|IY]
+    RegPairs    :   BC|DE|[HL|IX|IY]|SP
+    SingleReg   :   B|C|D|E| [H|IXh|IYh] | [L|IXl|IYl] | [(HL)|[([IX|IY]+d)] |A
+    RegStack    :   BC|DE|[HL|IX|IY]|AF
+    AIndPrs     :   (BC|DE)
+    Singles     :   B|C|D|E|H|L|((HL)|(IX|IY)+d))|A     [as SingleReg but excluding index singles]
+
+
+I N S T R U C T I O N S   W I T H    C B    P R E F I X
+-------------------------------------------------------
+
+  mask      compare   type          instruction(s)
+
+11ooo111    00000110    *           RLC|RRC|RL|RR|SLA|SRA|SLL|SRL       HLIndir
+
+11ooorrr    00000000    +           RLC|RRC|RL|RR|SLA|SRA|SLL|SRL       Singles
+    Remember:   LD  r,shift/rotate  ((IX|IY)+d) for DD CB when not using (HL)|(IX|IY)+d
+                If no index prefix is used the instruction can be executed directly, otherwise treat it
+                like an (HL) or ((IX|IY)+d)
+
+00bbb111    00000110    *           *|BIT|RES|SET       bit-operation   b,HLIndir
+
+oobbbrrr    00000000    +           *|BIT|RES|SET       0|1|2|3|4|5|6|7,Singles
+    Remember:   LD  r,bit-operation ((IX|IY)+d) for DD CB when not using (HL)|(IX|IY)+d
+                BIT operations unaffected so use normal BIT b,((IX|IY)+d) for everything.
+                If no index prefix is used the instruction can be executed directly, otherwise treat it
+                like an (HL) or ((IX|IY)+d)
+
+
+I N S T R U C T I O N S   W I T H    E D    P R E F I X
+-------------------------------------------------------
+
+  mask      compare     function    instruction(s)
+
+11rro111    01000011    +           LD      {(nn),RegPairs|RegPairs,(nn)}
+11orr111    01000010                SBC|ADC     HL,RegPairs
+111oo111    10100011    +           OUTI|OUTD|OTIR|OTDR       [Must come before other block stuff]
+111Rd1oo    10100000    +           (LD|CP|IN|*)(I |D |IR|DR)   [* = OUTI etc]
+11111111    01110000    +           IN      X,(C) [Reads port but trashes result - flags still affected]
+11111111    01110001    +           OUT     (C),X [Seems to do OUT (C),0]
+11rrr111    01000000    +           IN      Singles,(C)
+11rrr111    01000001    +           OUT     (C),Singles
+11xxx111    01000100    I_NEG       NEG
+1111o111    01000111    I_LD_REFRESH    LD   R,A|A,R
+111o1111    01000111                LD   I,A|A,I
+11xmm111    01000110    I_DUMMY     IM  0|*|1|2     [Ignore these (for the moment?)]
+11xxo111    01000101    +           RETN|RETI
+1111o111    01100111    *           RRD|RLD
+xxxxxxxx    00000000    I_DUMMY     NOP [The rest are NOPs]
+
+
+I N S T R U C T I O N S   W I T H O U T   A   P R E F I X
+---------------------------------------------------------
+
+  mask      compare     function    instruction(s)
+
+11111111    01110110    I_DUMMY     HALT        [Must come before LD r,r' since HALT = LD (HL),(HL)]
+11rrr111    01000110    *           LD      SingleReg, HLIndir
+11111rrr    01110000    *           LD      HLIndir, SingleReg
+11rrrRRR    01000000                LD      SingleReg,SingleReg
+11111111    00110110    *           LD      HLIndir,n
+11rrr111    00000110                LD      SingleReg,n
+11oo1111    00000001                LD      RegPairs,nn
+11ooo111    11000110                ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP | n
+11111111    11001101    +           CALL        pq
+11111111    11001001    +           RET
+11rr1o11    11000001    +           POP|PUSH    RegStack
+1111111o    00110100    *           INC|DEC     HLIndir
+11rrr11o    00000100                INC|DEC     SingleReg
+11rro111    00000011                INC|DEC     RegPairs
+1111o111    00110010    +           LD      {(nn),A|A,(nn)}
+11111111    00010000    +           DJNZ        e
+111ff111    00100000    +           JR      Flags,e
+11111111    00011000    +           JR      e
+11fff111    11000010    +           JP      Flags,pq
+11111111    11000011    +           JP      nn
+11fff111    11000000    +           RET     Flags
+11ooo111    10000110    *           {ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP } HLIndir
+11ooorrr    10000000                {ADD A,|ADC A,|SUB |SBC A,|AND |XOR |OR |CP } SingleReg
+11rr1111    00001001                ADD     HLDirect,RegPairs
+11111111    11101011    I_EX_DE_HL  EX      DE,HL
+11111111    11011001    I_EXX       EXX 
+11111111    00001000    I_EX_AF_AF  EX    AF,AF'
+1111o111    00100010    +           LD      {(nn),HLDirect|HLDirect,(nn)}
+111ro111    00001010    +           LD      {AIndPrs,A|A,AIndPrs}
+11fff111    11000100    +           CALL        Flags,pq
+11ooo111    00000111    I_SIMPLE    RLCA|RRCA|RLA|RRA|DAA|CPL|SCF|CCF
+11111111    11010011    +           OUT     (n),A
+11111111    11011011    +           IN      A,(n)
+1111o111    11110011    I_DUMMY     DI|EI   
+11111111    11101001    +           JP      HLIndir
+11111111    11111001                LD      SP,HLDir
+11111111    11100011    +           EX      (SP),HLDir
+11nnn111    11000111    +           RST     {#00,#08,#10,#18,#20,#28,#30,#38}
+11111111    00000000    I_DUMMY     NOP
+00000000    00000000    I_UNDEFINED UNDEFINED   [If any are missed, they'll come under this section!]
